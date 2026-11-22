@@ -1,0 +1,27 @@
+@startuml sequence-health
+title Послідовність: перевірка стану (GET /api/health)
+
+skinparam shadowing false
+autonumber
+
+actor "Клієнт" as Client
+participant ApiServer
+participant OllamaClient
+participant "Ollama\n:11434" as Ollama
+
+Client -> ApiServer : GET /api/health
+ApiServer -> OllamaClient : isAvailable()
+OllamaClient -> Ollama : GET /api/tags (таймаут 2 с)
+
+alt Ollama відповіла 200
+  Ollama --> OllamaClient : 200 OK
+  OllamaClient --> ApiServer : true
+else помилка, таймаут або не 200
+  Ollama --> OllamaClient : помилка / таймаут
+  note right of OllamaClient : винятки не виходять назовні
+  OllamaClient --> ApiServer : false
+end
+
+ApiServer --> Client : 200 {"status":"ok","ollama":true|false}
+
+@enduml
