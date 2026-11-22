@@ -79,16 +79,34 @@ package "index" {
   }
   class ConcurrentInvertedIndex {
     -segments: Segment[]
-    +addPosting(term: String, posting: Posting)
+    -termCount: AtomicInteger
+    -postingCount: AtomicLong
+    -docPaths: String[]
+    -docLengths: int[]
+    +addPosting(term: String, docId: int, frequency: int)
     +getPostings(term: String): List<Posting>
+    +documentFrequency(term: String): int
+    +termCount(): int
+    +registerDocument(path: String): int
+    +documentPath(docId: int): String
+    +setDocumentLength(docId: int, length: int)
+    +documentLength(docId: int): int
     +documentCount(): int
   }
   class Segment <<inner>> {
-    -lock: ReadWriteLock
-    -table: own hash table
+    -lock: ReentrantReadWriteLock
+    -buckets: Entry[]
+    -size: int
+    -resize()
   }
-  class Posting {
-    docId: String
+  class Entry <<inner>> {
+    term: String
+    hash: int
+    postings: ArrayList<Posting>
+    next: Entry
+  }
+  class Posting <<record>> {
+    docId: int
     termFrequency: int
   }
 }
@@ -132,12 +150,14 @@ Indexer --> Tokenizer
 Indexer --> ConcurrentInvertedIndex : writes
 
 ConcurrentInvertedIndex "1" *-- "N" Segment : striped locks
-Segment "1" o-- "*" Posting
+Segment "1" *-- "*" Entry : bucket lists
+Entry "1" o-- "*" Posting
 
 note bottom of ConcurrentInvertedIndex
-  Власна хеш-таблиця, без ConcurrentHashMap.
-  Термін -> сегмент за хешем; запис під
-  write-lock сегмента, читання під read-lock.
+  Власна хеш-таблиця, без готових concurrent-колекцій.
+  Сегментів 64 за замовчуванням. Термін -> сегмент за хешем; запис під write-lock
+  сегмента, читання під read-lock. getPostings повертає копію.
+  Реєстр документів: окремий ReadWriteLock.
 end note
 
 note as JsonNote

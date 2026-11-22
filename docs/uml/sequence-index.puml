@@ -23,13 +23,16 @@ end
 
 par воркери паралельно беруть задачі з черги
   ThreadPool -> Worker : task.run()
+  Worker -> Index : registerDocument(path)
+  Index --> Worker : docId
   Worker -> Worker : прочитати файл
   Worker -> Tokenizer : tokenize(text)
   Tokenizer --> Worker : терміни
   loop для кожного терміна
-    Worker -> Index : addPosting(term, Posting(docId, tf))
+    Worker -> Index : addPosting(term, docId, tf)
     note right of Index : write-lock лише сегмента терміна
   end
+  Worker -> Index : setDocumentLength(docId, length)
 end
 
 Indexer -> ThreadPool : shutdown()
