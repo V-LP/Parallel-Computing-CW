@@ -95,12 +95,20 @@ package "index" {
 
 package "concurrent" {
   class ThreadPool {
-    -queue: BlockingQueue<Runnable>
+    -queue: ArrayDeque<Runnable>
     -workers: Thread[]
+    +ThreadPool(threads: int)
     +submit(task: Runnable)
     +shutdown()
-    +awaitTermination()
+    +awaitTermination(timeout: long, unit: TimeUnit): boolean
+    +activeCount(): int
+    +queueSize(): int
   }
+  note right of ThreadPool
+    Власна черга: synchronized + wait/notify.
+    submit після shutdown ->
+    RejectedExecutionException.
+  end note
 }
 
 ApiServer --> SearchService

@@ -18,7 +18,7 @@ Indexer -> ThreadPool : new ThreadPool(threads)
 
 loop для кожного .txt файлу з /data
   Indexer -> ThreadPool : submit(task)
-  note right : задача кладеться в BlockingQueue
+  note right : задача кладеться в чергу пулу\n(synchronized + notify)
 end
 
 par воркери паралельно беруть задачі з черги
@@ -33,7 +33,7 @@ par воркери паралельно беруть задачі з черги
 end
 
 Indexer -> ThreadPool : shutdown()
-Indexer -> ThreadPool : awaitTermination()
+Indexer -> ThreadPool : awaitTermination(timeout, unit)
 ThreadPool --> Indexer : усі задачі виконано
 Indexer --> ApiServer : documents_indexed
 ApiServer --> Operator : 200 {"status":"ok","documents_indexed":N,"time_ms":T}
