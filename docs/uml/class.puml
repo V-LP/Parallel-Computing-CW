@@ -1,0 +1,140 @@
+@startuml class
+title Діаграма класів (пакети ua.coursework.engine.*)
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+set separator none
+hide empty members
+
+package "api" {
+  class ApiServer {
+    +create(): Javalin
+  }
+  note right of ApiServer
+    Маршрути: /api/health, /api/index,
+    /api/search, /api/stats, /ws/search
+  end note
+
+  class HealthResponse <<record>> {
+    status: String
+    ollama: boolean
+  }
+  class IndexRequest <<record>> {
+    threads: int
+  }
+  class IndexResponse <<record>> {
+    status: String
+    documentsIndexed: int
+    timeMs: long
+  }
+  class SearchRequest <<record>> {
+    query: String
+    mode: String
+  }
+  class SearchResult <<record>> {
+    docId: String
+    score: double
+    snippet: String
+  }
+  class SearchResponse <<record>> {
+    results: List<SearchResult>
+    timeMs: long
+  }
+  class StatsResponse <<record>> {
+    documents: int
+    indexBuildTimeMs: long
+    threadsUsed: int
+  }
+  class WsMessage <<record>> {
+    stage: String
+    data: Object
+  }
+}
+
+package "search" {
+  class SearchService {
+    +search(query: String): SearchResponse
+    +expandQuery(query: String): List<String>
+  }
+}
+
+package "llm" {
+  class QueryExpander {
+    -llmGate: Semaphore(1)
+    +expand(query: String): List<String>
+  }
+  class OllamaClient {
+    -baseUrl: String
+    +isAvailable(): boolean
+    +generate(prompt: String): String
+  }
+}
+
+package "index" {
+  class Indexer {
+    +buildIndex(dataDir: Path, threads: int): int
+  }
+  class Tokenizer {
+    +tokenize(text: String): List<String>
+  }
+  class ConcurrentInvertedIndex {
+    -segments: Segment[]
+    +addPosting(term: String, posting: Posting)
+    +getPostings(term: String): List<Posting>
+    +documentCount(): int
+  }
+  class Segment <<inner>> {
+    -lock: ReadWriteLock
+    -table: own hash table
+  }
+  class Posting {
+    docId: String
+    termFrequency: int
+  }
+}
+
+package "concurrent" {
+  class ThreadPool {
+    -queue: BlockingQueue<Runnable>
+    -workers: Thread[]
+    +submit(task: Runnable)
+    +shutdown()
+    +awaitTermination()
+  }
+}
+
+ApiServer --> SearchService
+ApiServer --> Indexer
+ApiServer --> OllamaClient : health
+ApiServer ..> HealthResponse
+ApiServer ..> IndexResponse
+ApiServer ..> SearchResponse
+ApiServer ..> StatsResponse
+ApiServer ..> WsMessage
+
+SearchService --> ConcurrentInvertedIndex : reads
+SearchService --> Tokenizer
+SearchService --> QueryExpander
+SearchResponse "1" o-- "*" SearchResult
+
+QueryExpander --> OllamaClient
+
+Indexer --> ThreadPool : submits file tasks
+Indexer --> Tokenizer
+Indexer --> ConcurrentInvertedIndex : writes
+
+ConcurrentInvertedIndex "1" *-- "N" Segment : striped locks
+Segment "1" o-- "*" Posting
+
+note bottom of ConcurrentInvertedIndex
+  Власна хеш-таблиця, без ConcurrentHashMap.
+  Термін -> сегмент за хешем; запис під
+  write-lock сегмента, читання під read-lock.
+end note
+
+note as JsonNote
+  У JSON поля мають snake_case за контрактом API
+  (documents_indexed, time_ms, doc_id тощо).
+end note
+
+@enduml
