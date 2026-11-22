@@ -1,0 +1,46 @@
+@startuml use-case
+title Діаграма варіантів використання
+
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Користувач\nWeb UI" as WebUser
+actor "Користувач\nCLI" as CliUser
+actor "Оператор\nіндексації" as Operator
+actor "Ollama\n(зовнішня система)" as Ollama <<system>>
+
+rectangle "Паралельна пошукова система" {
+  usecase "Індексувати датасет\nPOST /api/index" as UCIndex
+  usecase "Пошук за ключовими словами\nPOST /api/search" as UCSearch
+  usecase "Розширення запиту через LLM" as UCExpand
+  usecase "Потоковий пошук\nWebSocket /ws/search" as UCWs
+  usecase "Переглянути статистику\nGET /api/stats" as UCStats
+  usecase "Перевірити стан\nGET /api/health" as UCHealth
+}
+
+Operator --> UCIndex
+Operator --> UCStats
+Operator --> UCHealth
+
+WebUser --> UCWs
+WebUser --> UCStats
+WebUser --> UCHealth
+
+CliUser --> UCSearch
+CliUser --> UCWs
+CliUser --> UCStats
+CliUser --> UCHealth
+
+UCWs ..> UCExpand : <<include>>
+UCWs ..> UCSearch : <<include>>
+
+UCExpand --> Ollama
+UCHealth --> Ollama
+
+note right of Ollama
+  Якщо Ollama недоступна,
+  пошук іде по оригінальному запиту.
+end note
+
+@enduml
