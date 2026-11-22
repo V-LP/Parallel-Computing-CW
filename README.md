@@ -120,10 +120,19 @@ mvn test
 ├── server/src/main/resources/web/   # Web UI
 ├── cli/                     # консольний клієнт
 ├── bench/                   # бенчмарки та графіки (Python)
-├── docs/uml/                # UML-діаграми
+├── docs/uml/                # UML-діаграми (.puml) і рендер у out/
 ├── docs/report/             # розділи звіту
 ├── CONTEXT.md               # контекст проєкту для нових чатів
 └── COMMITS.md               # правила commit-повідомлень
+```
+
+## UML-діаграми
+
+Джерела в `docs/uml/*.puml`, готові PNG/SVG у `docs/uml/out/`. Перерендерити:
+
+```bash
+java -jar plantuml.jar -charset UTF-8 -tpng -o out docs/uml/*.puml
+java -jar plantuml.jar -charset UTF-8 -tsvg -o out docs/uml/*.puml
 ```
 
 ## Git
