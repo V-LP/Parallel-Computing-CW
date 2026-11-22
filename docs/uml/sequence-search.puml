@@ -1,0 +1,34 @@
+@startuml sequence-search
+title Послідовність: пошук за ключовими словами (POST /api/search)
+
+skinparam shadowing false
+autonumber
+
+actor "Клієнт\n(CLI)" as Client
+participant ApiServer
+participant SearchService
+participant Tokenizer
+participant ConcurrentInvertedIndex as Index
+
+Client -> ApiServer : POST /api/search\n{"query":"text","mode":"keyword"}
+note right of ApiServer : запит обробляється в окремому\nпотоці сервера (паралельно з іншими)
+ApiServer -> SearchService : search(query)
+SearchService -> Tokenizer : tokenize(query)
+Tokenizer --> SearchService : терміни
+
+loop для кожного терміна
+  SearchService -> Index : getPostings(term)
+  note right of Index : read-lock сегмента, запис\nв інші сегменти не блокується
+  Index --> SearchService : список Posting
+end
+
+SearchService -> SearchService : порахувати score, відсортувати,\nсформувати snippet
+SearchService --> ApiServer : SearchResponse
+ApiServer --> Client : 200 {"results":[{"doc_id","score","snippet"}],"time_ms":T}
+
+note over SearchService
+  Режим keyword не викликає Ollama.
+  Розширення запиту є лише в WebSocket-сценарії.
+end note
+
+@enduml
