@@ -1,0 +1,41 @@
+@startuml sequence-index
+title Послідовність: паралельна індексація (POST /api/index)
+
+skinparam shadowing false
+autonumber
+
+actor "Оператор" as Operator
+participant ApiServer
+participant Indexer
+participant ThreadPool
+participant "Worker\n(потік пулу)" as Worker
+participant Tokenizer
+participant ConcurrentInvertedIndex as Index
+
+Operator -> ApiServer : POST /api/index {"threads": 4}
+ApiServer -> Indexer : buildIndex(dataDir, threads)
+Indexer -> ThreadPool : new ThreadPool(threads)
+
+loop для кожного .txt файлу з /data
+  Indexer -> ThreadPool : submit(task)
+  note right : задача кладеться в BlockingQueue
+end
+
+par воркери паралельно беруть задачі з черги
+  ThreadPool -> Worker : task.run()
+  Worker -> Worker : прочитати файл
+  Worker -> Tokenizer : tokenize(text)
+  Tokenizer --> Worker : терміни
+  loop для кожного терміна
+    Worker -> Index : addPosting(term, Posting(docId, tf))
+    note right of Index : write-lock лише сегмента терміна
+  end
+end
+
+Indexer -> ThreadPool : shutdown()
+Indexer -> ThreadPool : awaitTermination()
+ThreadPool --> Indexer : усі задачі виконано
+Indexer --> ApiServer : documents_indexed
+ApiServer --> Operator : 200 {"status":"ok","documents_indexed":N,"time_ms":T}
+
+@enduml
