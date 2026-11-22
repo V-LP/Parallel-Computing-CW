@@ -1,0 +1,36 @@
+@startuml deployment
+title Діаграма розгортання (Docker Compose)
+
+skinparam shadowing false
+
+actor "Користувач" as User
+node "Браузер\n(Web UI)" as Browser
+node "CLI\n(./search)" as Cli
+
+node "Хост: docker compose up" as Host {
+  node "Контейнер server\n(eclipse-temurin:21-jre)" as Server {
+    artifact "server.jar\nJavalin: REST + WebSocket" as Jar
+  }
+  node "Контейнер ollama\n(ollama/ollama)" as OllamaC {
+    component "Ollama\nOLLAMA_MODEL" as OllamaApp
+  }
+  folder "./data\n(датасет, не в git)" as Data
+  database "volume ollama_models" as Models
+}
+
+User --> Browser
+User --> Cli
+
+Browser --> Jar : HTTP + WebSocket\nхост :8080
+Cli --> Jar : HTTP + WebSocket\nхост :8080
+
+Jar --> OllamaApp : HTTP OLLAMA_URL\nhttp://ollama:11434\n(лише всередині мережі compose)
+Data --> Jar : bind mount ./data:/data:ro
+Models --> OllamaApp : volume ollama_models:/root/.ollama
+
+note bottom of Server
+  server стартує після того, як ollama
+  пройшла healthcheck (service_healthy)
+end note
+
+@enduml
