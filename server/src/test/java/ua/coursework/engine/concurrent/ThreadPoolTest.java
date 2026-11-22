@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.RejectedExecutionException;
@@ -134,14 +136,16 @@ class ThreadPoolTest {
   void workersAreNamedWorkerN() throws Exception {
     int threads = 3;
     ThreadPool pool = new ThreadPool(threads);
-    Set<String> names = ConcurrentHashMap.newKeySet();
+    List<String> names = new ArrayList<>(); // guarded by itself
     // The barrier makes every task wait for the others, so each runs on its own worker.
     CyclicBarrier barrier = new CyclicBarrier(threads);
 
     for (int i = 0; i < threads; i++) {
       pool.submit(
           () -> {
-            names.add(Thread.currentThread().getName());
+            synchronized (names) {
+              names.add(Thread.currentThread().getName());
+            }
             try {
               barrier.await(5, TimeUnit.SECONDS);
             } catch (Exception e) {
@@ -152,7 +156,7 @@ class ThreadPoolTest {
     pool.shutdown();
 
     assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
-    assertEquals(Set.of("worker-1", "worker-2", "worker-3"), names);
+    assertEquals(Set.of("worker-1", "worker-2", "worker-3"), new HashSet<>(names));
   }
 
   @Test
