@@ -1,0 +1,40 @@
+@startuml sequence-ws-search
+title Послідовність: потоковий пошук (WebSocket /ws/search)
+
+skinparam shadowing false
+autonumber
+
+actor "Клієнт\n(Web UI / CLI)" as Client
+participant ApiServer
+participant SearchService
+participant QueryExpander
+participant OllamaClient
+participant "Ollama" as Ollama
+
+Client -> ApiServer : відкрити /ws/search
+Client -> ApiServer : {"query":"..."}
+ApiServer -> SearchService : expandQuery(query)
+SearchService -> QueryExpander : expand(query)
+QueryExpander -> QueryExpander : acquire Semaphore(1)\n(одна генерація за раз)
+
+alt Ollama доступна
+  QueryExpander -> OllamaClient : generate(prompt)
+  OllamaClient -> Ollama : POST /api/generate
+  Ollama --> OllamaClient : відповідь моделі
+  OllamaClient --> QueryExpander : текст
+  QueryExpander --> SearchService : expanded_terms
+else Ollama недоступна (fallback)
+  QueryExpander --> SearchService : [] (порожній список)
+  note right : пошук піде лише по\nоригінальному запиту
+end
+
+QueryExpander -> QueryExpander : release Semaphore
+SearchService --> ApiServer : expanded_terms
+ApiServer --> Client : {"stage":"query_expansion",\n"data":{"original":"...","expanded_terms":[...]}}
+
+ApiServer -> SearchService : search(original + expanded_terms)
+SearchService --> ApiServer : SearchResponse
+ApiServer --> Client : {"stage":"keyword_search",\n"data":{"results":[...],"time_ms":12}}
+ApiServer --> Client : {"stage":"done"}
+
+@enduml
