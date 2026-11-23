@@ -16,10 +16,14 @@ services:
       - "8080:8080"
     environment:
       PORT: "8080"
+      DATA_DIR: /data
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
     volumes:
       - ./data:/data:ro
+    # Optional memory limit for the server container (the JVM heap is 75% of it). Example:
+    #   SERVER_MEM_LIMIT=8g docker compose up --build   (then uncomment the next line)
+    # mem_limit: ${SERVER_MEM_LIMIT}
     depends_on:
       ollama:
         condition: service_healthy
