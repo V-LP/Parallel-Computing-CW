@@ -6,9 +6,11 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.coursework.engine.concurrent.ThreadPool;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.IndexSnapshot;
 import ua.coursework.engine.index.IndexingInProgressException;
@@ -16,12 +18,19 @@ import ua.coursework.engine.llm.OllamaClient;
 import ua.coursework.engine.search.SearchHit;
 import ua.coursework.engine.search.SearchService;
 
-/** Javalin REST routes. The WebSocket is added in a later stage. */
+/** Javalin routes: the REST API and the WebSocket {@code /ws/search}. */
 public final class ApiServer {
 
   private static final Logger LOG = LoggerFactory.getLogger(ApiServer.class);
   private static final int MAX_THREADS = 1024;
   private static final String KEYWORD_MODE = "keyword";
+
+  /**
+   * A WebSocket without traffic is closed after this time. Jetty's default is 30 s, which is
+   * shorter than a slow Ollama call (OLLAMA_TIMEOUT_SECONDS is 60 s), and while the server thinks
+   * it sends nothing. So the limit is raised.
+   */
+  private static final Duration WS_IDLE_TIMEOUT = Duration.ofMinutes(10);
   private static final ObjectMapper MAPPER =
       new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -29,16 +38,32 @@ public final class ApiServer {
   private final IndexManager indexManager;
   private final SearchService searchService;
   private final Path dataDir;
+  private final ThreadPool searchPool; // runs the WebSocket pipelines; null: no WebSocket
 
+  /** A server with the REST API only (no WebSocket route). */
   public ApiServer(
       OllamaClient ollama,
       IndexManager indexManager,
       SearchService searchService,
       Path dataDir) {
+    this(ollama, indexManager, searchService, dataDir, null);
+  }
+
+  /**
+   * The full server. {@code searchPool} is the pool of our own where WebSocket queries run; the
+   * caller creates it and shuts it down.
+   */
+  public ApiServer(
+      OllamaClient ollama,
+      IndexManager indexManager,
+      SearchService searchService,
+      Path dataDir,
+      ThreadPool searchPool) {
     this.ollama = ollama;
     this.indexManager = indexManager;
     this.searchService = searchService;
     this.dataDir = dataDir;
+    this.searchPool = searchPool;
   }
 
   /** Builds the Javalin app with all routes but does not start it. */
@@ -48,7 +73,39 @@ public final class ApiServer {
     app.post("/api/index", this::handleIndex);
     app.post("/api/search", this::handleSearch);
     app.get("/api/stats", this::handleStats);
+    if (searchPool != null) {
+      addWebSocket(app);
+    }
     return app;
+  }
+
+  /** Connects the Javalin WebSocket events to {@link WsSearchHandler}. */
+  private void addWebSocket(Javalin app) {
+    WsSearchHandler handler = new WsSearchHandler(searchService, searchPool);
+    app.ws(
+        "/ws/search",
+        ws -> {
+          ws.onConnect(
+              ctx -> {
+                ctx.session.setIdleTimeout(WS_IDLE_TIMEOUT);
+                handler.onConnect(
+                    ctx.session,
+                    new WsSearchHandler.Sink() {
+                      @Override
+                      public void send(String text) {
+                        ctx.send(text);
+                      }
+
+                      @Override
+                      public boolean isOpen() {
+                        return ctx.session.isOpen();
+                      }
+                    });
+              });
+          ws.onMessage(ctx -> handler.onMessage(ctx.session, ctx.message()));
+          ws.onClose(ctx -> handler.onClose(ctx.session));
+          ws.onError(ctx -> handler.onClose(ctx.session));
+        });
   }
 
   private void handleStats(Context ctx) {

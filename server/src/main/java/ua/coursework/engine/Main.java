@@ -1,16 +1,22 @@
 package ua.coursework.engine;
 
+import io.javalin.Javalin;
 import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.coursework.engine.api.ApiServer;
+import ua.coursework.engine.concurrent.ThreadPool;
+import ua.coursework.engine.index.Chunker;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
 import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
-/** Server entry point: reads PORT, OLLAMA_URL and DATA_DIR from the environment and starts Javalin. */
+/**
+ * Server entry point: reads PORT, OLLAMA_URL, DATA_DIR and SEARCH_THREADS from the environment and
+ * starts Javalin.
+ */
 public final class Main {
 
   private static final Logger LOG = LoggerFactory.getLogger(Main.class);
@@ -25,13 +31,31 @@ public final class Main {
     int port = readPort();
     Path dataDir = Path.of(readEnv("DATA_DIR", DEFAULT_DATA_DIR));
     Tokenizer tokenizer = new Tokenizer();
-    IndexManager indexManager = new IndexManager(tokenizer);
+    Chunker chunker = Chunker.fromEnv();
+    IndexManager indexManager = new IndexManager(tokenizer, chunker);
     OllamaClient ollama = OllamaClient.fromEnv();
     QueryExpander expander = new QueryExpander(ollama, tokenizer);
     SearchService searchService = new SearchService(indexManager, tokenizer, dataDir, expander);
 
-    new ApiServer(ollama, indexManager, searchService, dataDir).create().start(port);
-    LOG.info("Server started on port {}, data directory {}", port, dataDir);
+    int searchThreads = readSearchThreads();
+    ThreadPool searchPool = new ThreadPool(searchThreads);
+    Javalin app =
+        new ApiServer(ollama, indexManager, searchService, dataDir, searchPool)
+            .create()
+            .start(port);
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  app.stop();
+                  searchPool.shutdown();
+                },
+                "shutdown"));
+    LOG.info(
+        "Server started on port {}, data directory {}, WebSocket search threads {}",
+        port,
+        dataDir,
+        searchThreads);
     startModelLoader(ollama);
   }
 
@@ -51,6 +75,22 @@ public final class Main {
   private static String readEnv(String name, String defaultValue) {
     String value = System.getenv(name);
     return value == null || value.isBlank() ? defaultValue : value.trim();
+  }
+
+  /** Size of the pool that runs WebSocket queries: SEARCH_THREADS, default = number of CPUs. */
+  private static int readSearchThreads() {
+    int cpus = Runtime.getRuntime().availableProcessors();
+    String value = readEnv("SEARCH_THREADS", String.valueOf(cpus));
+    try {
+      int threads = Integer.parseInt(value);
+      if (threads >= 1) {
+        return threads;
+      }
+    } catch (NumberFormatException e) {
+      // falls through to the warning below
+    }
+    LOG.warn("Invalid SEARCH_THREADS '{}', using {}", value, cpus);
+    return cpus;
   }
 
   private static int readPort() {
