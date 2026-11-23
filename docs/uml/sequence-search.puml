@@ -4,31 +4,52 @@ title Послідовність: пошук за ключовими слова�
 skinparam shadowing false
 autonumber
 
-actor "Клієнт\n(CLI)" as Client
+actor "Клієнт\n(CLI / Web UI)" as Client
 participant ApiServer
 participant SearchService
 participant Tokenizer
+participant IndexManager
 participant ConcurrentInvertedIndex as Index
+participant SnippetExtractor
+database "DATA_DIR\n(файли книг)" as Files
 
 Client -> ApiServer : POST /api/search\n{"query":"text","mode":"keyword"}
-note right of ApiServer : запит обробляється в окремому\nпотоці сервера (паралельно з іншими)
-ApiServer -> SearchService : search(query)
-SearchService -> Tokenizer : tokenize(query)
-Tokenizer --> SearchService : терміни
+note right of ApiServer : кожен запит обробляється в окремому\nпотоці сервера (паралельно з іншими)
 
-loop для кожного терміна
-  SearchService -> Index : getPostings(term)
-  note right of Index : read-lock сегмента, запис\nв інші сегменти не блокується
-  Index --> SearchService : список Posting
+alt query порожній або mode не keyword
+  ApiServer --> Client : 400 {"status":"error","message":"..."}
+else коректний запит
+  ApiServer -> SearchService : search(query, 10)
+  SearchService -> Tokenizer : tokenize(query)
+  Tokenizer --> SearchService : терміни (нижній регістр, без стоп-слів)
+  SearchService -> IndexManager : current()
+  IndexManager --> SearchService : IndexSnapshot (готовий індекс)
+  note right of IndexManager : переіндексація, що йде паралельно,\nбудує інший індекс і цей не чіпає
+
+  loop для кожного терміна запиту
+    SearchService -> Index : getPostings(term)
+    note right of Index : read-lock сегмента; повертається копія
+    Index --> SearchService : список Posting
+    SearchService -> SearchService : додати TF-IDF внесок\nдо кожного документа зі списку
+  end
+
+  SearchService -> SearchService : для документів-кандидатів:\ncoord і нормалізація на довжину,\nPriorityQueue розміру K залишає найкращі
+  note right of SearchService : повне сортування всіх збігів не потрібне,\nлише K елементів у купі
+
+  loop для кожного з top-K документів
+    SearchService -> SnippetExtractor : extract(docId, terms)
+    SnippetExtractor -> Files : читання рядок за рядком\n(лише тіло книги), до першого збігу
+    Files --> SnippetExtractor : текст
+    SnippetExtractor --> SearchService : ~200 символів (або "" при помилці)
+  end
+
+  SearchService --> ApiServer : List<SearchHit> (score 0..1, за спаданням)
+  ApiServer --> Client : 200 {"results":[{"doc_id","score","snippet"}],"time_ms":T}
 end
-
-SearchService -> SearchService : порахувати score, відсортувати,\nсформувати snippet
-SearchService --> ApiServer : SearchResponse
-ApiServer --> Client : 200 {"results":[{"doc_id","score","snippet"}],"time_ms":T}
 
 note over SearchService
   Режим keyword не викликає Ollama.
-  Розширення запиту є лише в WebSocket-сценарії.
+  Розширення запиту є лише в WebSocket-сценарії (етап 8).
 end note
 
 @enduml

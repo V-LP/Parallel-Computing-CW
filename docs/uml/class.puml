@@ -8,12 +8,13 @@ hide empty members
 
 package "api" {
   class ApiServer {
-    +ApiServer(ollama, indexManager, dataDir)
+    +ApiServer(ollama, indexManager, searchService, dataDir)
     +create(): Javalin
   }
   note right of ApiServer
-    Маршрути: /api/health, /api/index, /api/stats
-    (далі: /api/search, /ws/search)
+    Маршрути: /api/health, /api/index,
+    /api/search, /api/stats
+    (далі: /ws/search)
     DATA_DIR задає каталог датасету
   end note
 
@@ -35,7 +36,7 @@ package "api" {
   }
   class SearchRequest <<record>> {
     query: String
-    mode: String
+    mode: String  (keyword)
   }
   class SearchResult <<record>> {
     docId: String
@@ -59,9 +60,29 @@ package "api" {
 
 package "search" {
   class SearchService {
-    +search(query: String): SearchResponse
-    +expandQuery(query: String): List<String>
+    +DEFAULT_TOP_K: int = 10
+    +search(query: String, topK: int): List<SearchHit>
+    +keywordSearch(terms: List<String>, topK: int): List<SearchHit>
+    +keywordSearchWeighted(terms: List<WeightedTerm>, topK: int): List<SearchHit>
   }
+  class WeightedTerm <<record>> {
+    term: String
+    weight: double
+  }
+  class SearchHit <<record>> {
+    docId: String
+    score: double
+    snippet: String
+  }
+  class SnippetExtractor {
+    +extract(docId: String, terms: Collection<String>): String
+  }
+  note bottom of SearchService
+    TF-IDF: tf = 1 + ln(freq), idf = ln(1 + N/df),
+    score = coord * sum(weight * tf * idf) / (1 + ln(length)).
+    OR-семантика, top-K через PriorityQueue,
+    рівні оцінки впорядковуються за doc_id.
+  end note
 }
 
 package "llm" {
@@ -98,6 +119,7 @@ package "index" {
   class Tokenizer {
     +tokenize(text: String): List<String>
     +tokenize(reader: BufferedReader, sink: Consumer<String>)
+    +forEachBodyLine(reader: BufferedReader, handler: Predicate<String>)
   }
   note bottom of Tokenizer
     нижній регістр, терміни 2..40 символів,
@@ -169,7 +191,12 @@ ApiServer ..> WsMessage
 
 SearchService --> IndexManager : current().index()
 SearchService --> Tokenizer
-SearchService --> QueryExpander
+SearchService ..> QueryExpander : етап 8
+SearchService --> WeightedTerm
+SearchService ..> SearchHit : returns
+SearchService --> SnippetExtractor : top-K snippets
+SnippetExtractor --> Tokenizer : body lines
+ApiServer ..> SearchRequest
 SearchResponse "1" o-- "*" SearchResult
 
 QueryExpander --> OllamaClient
