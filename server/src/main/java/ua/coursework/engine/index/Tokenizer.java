@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Splits text into index terms.
@@ -60,6 +61,21 @@ public final class Tokenizer {
    * {@code sink}.
    */
   public void tokenize(BufferedReader reader, Consumer<String> sink) throws IOException {
+    forEachBodyLine(
+        reader,
+        line -> {
+          tokenizeLine(line, sink);
+          return true;
+        });
+  }
+
+  /**
+   * Passes the lines of the book body (without the Gutenberg header and footer) to {@code
+   * handler}, one by one, until the handler returns false or the body ends. The snippet builder
+   * uses it too, so snippets never come from the license text.
+   */
+  public void forEachBodyLine(BufferedReader reader, Predicate<String> handler)
+      throws IOException {
     // Step 1: read the first lines and remember the position of the START marker. If the header
     // has several such lines (old books), the last one wins.
     List<String> head = new ArrayList<>();
@@ -77,22 +93,21 @@ public final class Tokenizer {
       }
     }
 
-    // Step 2: tokenize the buffered lines after the START marker (or all of them without one).
+    // Step 2: the buffered lines after the START marker (or all of them without one).
     for (int i = startMarker + 1; i < head.size(); i++) {
-      if (isMarker(head.get(i), "END OF")) {
+      String line = head.get(i);
+      if (isMarker(line, "END OF") || !handler.test(line)) {
         return;
       }
-      tokenizeLine(head.get(i), sink);
     }
 
     // Step 3: the rest of the text, up to the END marker.
     if (!endOfInput) {
       String line;
       while ((line = reader.readLine()) != null) {
-        if (isMarker(line, "END OF")) {
+        if (isMarker(line, "END OF") || !handler.test(line)) {
           return;
         }
-        tokenizeLine(line, sink);
       }
     }
   }

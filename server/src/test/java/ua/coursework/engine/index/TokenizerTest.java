@@ -160,4 +160,36 @@ class TokenizerTest {
     assertTrue(terms.contains("late"));
     assertTrue(terms.contains("beta"));
   }
+
+  @Test
+  void forEachBodyLineGivesOnlyTheBodyAndCanStopEarly() throws IOException {
+    String text =
+        String.join(
+            "\n",
+            "license header",
+            "*** START OF THE PROJECT GUTENBERG EBOOK X ***",
+            "line one",
+            "line two",
+            "line three",
+            "*** END OF THE PROJECT GUTENBERG EBOOK X ***",
+            "license footer");
+
+    List<String> all = new ArrayList<>();
+    tokenizer.forEachBodyLine(
+        new BufferedReader(new StringReader(text)),
+        line -> {
+          all.add(line);
+          return true;
+        });
+    assertEquals(List.of("line one", "line two", "line three"), all);
+
+    List<String> firstTwo = new ArrayList<>();
+    tokenizer.forEachBodyLine(
+        new BufferedReader(new StringReader(text)),
+        line -> {
+          firstTwo.add(line);
+          return firstTwo.size() < 2;
+        });
+    assertEquals(List.of("line one", "line two"), firstTwo);
+  }
 }
