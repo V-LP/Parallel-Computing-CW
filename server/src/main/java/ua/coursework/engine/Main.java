@@ -7,6 +7,7 @@ import ua.coursework.engine.api.ApiServer;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
+import ua.coursework.engine.search.SearchService;
 
 /** Server entry point: reads PORT, OLLAMA_URL and DATA_DIR from the environment and starts Javalin. */
 public final class Main {
@@ -20,9 +21,13 @@ public final class Main {
   public static void main(String[] args) {
     int port = readPort();
     Path dataDir = Path.of(readEnv("DATA_DIR", DEFAULT_DATA_DIR));
-    IndexManager indexManager = new IndexManager(new Tokenizer());
+    Tokenizer tokenizer = new Tokenizer();
+    IndexManager indexManager = new IndexManager(tokenizer);
+    SearchService searchService = new SearchService(indexManager, tokenizer, dataDir);
 
-    new ApiServer(OllamaClient.fromEnv(), indexManager, dataDir).create().start(port);
+    new ApiServer(OllamaClient.fromEnv(), indexManager, searchService, dataDir)
+        .create()
+        .start(port);
     LOG.info("Server started on port {}, data directory {}", port, dataDir);
   }
 
