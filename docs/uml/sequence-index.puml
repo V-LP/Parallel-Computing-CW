@@ -6,6 +6,7 @@ autonumber
 
 actor "Оператор" as Operator
 participant ApiServer
+participant IndexManager
 participant Indexer
 participant ThreadPool
 participant "Worker\n(потік пулу)" as Worker
@@ -13,32 +14,46 @@ participant Tokenizer
 participant ConcurrentInvertedIndex as Index
 
 Operator -> ApiServer : POST /api/index {"threads": 4}
-ApiServer -> Indexer : buildIndex(dataDir, threads)
-Indexer -> ThreadPool : new ThreadPool(threads)
+ApiServer -> IndexManager : rebuild(dataDir, threads)
 
-loop для кожного .txt файлу з /data
-  Indexer -> ThreadPool : submit(task)
-  note right : задача кладеться в чергу пулу\n(synchronized + notify)
-end
+alt індексація вже триває
+  IndexManager --> ApiServer : IndexingInProgressException
+  ApiServer --> Operator : 409 {"status":"error",...}
+else вільно
+  IndexManager -> Index : new ConcurrentInvertedIndex() (порожній, поки не опублікований)
+  IndexManager -> Indexer : buildIndex(dataDir, threads)
+  Indexer -> ThreadPool : new ThreadPool(threads)
 
-par воркери паралельно беруть задачі з черги
-  ThreadPool -> Worker : task.run()
-  Worker -> Index : registerDocument(path)
-  Index --> Worker : docId
-  Worker -> Worker : прочитати файл
-  Worker -> Tokenizer : tokenize(text)
-  Tokenizer --> Worker : терміни
-  loop для кожного терміна
-    Worker -> Index : addPosting(term, docId, tf)
-    note right of Index : write-lock лише сегмента терміна
+  loop для кожного .txt файлу з DATA_DIR
+    Indexer -> ThreadPool : submit(task)
+    note right : задача кладеться в чергу пулу\n(synchronized + notify)
   end
-  Worker -> Index : setDocumentLength(docId, length)
-end
 
-Indexer -> ThreadPool : shutdown()
-Indexer -> ThreadPool : awaitTermination(timeout, unit)
-ThreadPool --> Indexer : усі задачі виконано
-Indexer --> ApiServer : documents_indexed
-ApiServer --> Operator : 200 {"status":"ok","documents_indexed":N,"time_ms":T}
+  par воркери паралельно беруть задачі з черги
+    ThreadPool -> Worker : task.run()
+    Worker -> Tokenizer : tokenize(reader, sink)
+    note right of Tokenizer : читання рядок за рядком,\nшапка й футер Gutenberg пропускаються
+    Tokenizer --> Worker : терміни -> локальна HashMap (частоти)
+    alt файл не читається або порожній
+      Worker -> Worker : лог WARN, файл пропущено
+    else є терміни
+      Worker -> Index : registerDocument(path)
+      Index --> Worker : docId
+      loop для кожного терміна документа
+        Worker -> Index : addPosting(term, docId, tf)
+        note right of Index : write-lock лише сегмента терміна
+      end
+      Worker -> Index : setDocumentLength(docId, length)
+    end
+  end
+
+  Indexer -> ThreadPool : shutdown()
+  Indexer -> ThreadPool : awaitTermination(timeout, unit)
+  ThreadPool --> Indexer : усі задачі виконано
+  Indexer --> IndexManager : documents_indexed
+  IndexManager -> IndexManager : current = new IndexSnapshot(...)\n(атомарна заміна старого індексу)
+  IndexManager --> ApiServer : IndexSnapshot
+  ApiServer --> Operator : 200 {"status":"ok","documents_indexed":N,"time_ms":T}
+end
 
 @enduml

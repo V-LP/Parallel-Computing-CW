@@ -8,11 +8,13 @@ hide empty members
 
 package "api" {
   class ApiServer {
+    +ApiServer(ollama, indexManager, dataDir)
     +create(): Javalin
   }
   note right of ApiServer
-    Маршрути: /api/health, /api/index,
-    /api/search, /api/stats, /ws/search
+    Маршрути: /api/health, /api/index, /api/stats
+    (далі: /api/search, /ws/search)
+    DATA_DIR задає каталог датасету
   end note
 
   class HealthResponse <<record>> {
@@ -20,7 +22,11 @@ package "api" {
     ollama: boolean
   }
   class IndexRequest <<record>> {
-    threads: int
+    threads: Integer
+  }
+  class ErrorResponse <<record>> {
+    status: String
+    message: String
   }
   class IndexResponse <<record>> {
     status: String
@@ -71,12 +77,33 @@ package "llm" {
 }
 
 package "index" {
+  class IndexManager {
+    -current: IndexSnapshot  (volatile)
+    -indexing: AtomicBoolean
+    +current(): IndexSnapshot
+    +rebuild(dataDir: Path, threads: int): IndexSnapshot
+    +isIndexing(): boolean
+  }
+  class IndexSnapshot <<record>> {
+    index: ConcurrentInvertedIndex
+    documents: int
+    buildTimeMs: long
+    threadsUsed: int
+  }
+  class IndexingInProgressException <<exception>>
   class Indexer {
+    +Indexer(index, tokenizer)
     +buildIndex(dataDir: Path, threads: int): int
   }
   class Tokenizer {
     +tokenize(text: String): List<String>
+    +tokenize(reader: BufferedReader, sink: Consumer<String>)
   }
+  note bottom of Tokenizer
+    нижній регістр, терміни 2..40 символів,
+    стоп-слова (resource stopwords.txt),
+    пропуск шапки й футера Gutenberg
+  end note
   class ConcurrentInvertedIndex {
     -segments: Segment[]
     -termCount: AtomicInteger
@@ -130,21 +157,27 @@ package "concurrent" {
 }
 
 ApiServer --> SearchService
-ApiServer --> Indexer
+ApiServer --> IndexManager
 ApiServer --> OllamaClient : health
 ApiServer ..> HealthResponse
 ApiServer ..> IndexResponse
 ApiServer ..> SearchResponse
 ApiServer ..> StatsResponse
+ApiServer ..> ErrorResponse
+ApiServer ..> IndexingInProgressException : 409
 ApiServer ..> WsMessage
 
-SearchService --> ConcurrentInvertedIndex : reads
+SearchService --> IndexManager : current().index()
 SearchService --> Tokenizer
 SearchService --> QueryExpander
 SearchResponse "1" o-- "*" SearchResult
 
 QueryExpander --> OllamaClient
 
+IndexManager --> Indexer : creates for each build
+IndexManager o-- IndexSnapshot : publishes
+IndexSnapshot --> ConcurrentInvertedIndex
+IndexManager ..> IndexingInProgressException : throws
 Indexer --> ThreadPool : submits file tasks
 Indexer --> Tokenizer
 Indexer --> ConcurrentInvertedIndex : writes
