@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,6 +25,7 @@ import ua.coursework.engine.index.IndexSnapshot;
 import ua.coursework.engine.index.IndexingInProgressException;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
+import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
@@ -371,6 +373,38 @@ class ApiServerTest {
           for (boolean value : ok) {
             assertTrue(value);
           }
+        });
+  }
+
+  @Test
+  void keywordSearchNeverCallsTheLanguageModel() throws IOException {
+    writeWhaleBooks();
+    AtomicInteger llmCalls = new AtomicInteger();
+    Tokenizer tokenizer = new Tokenizer();
+    IndexManager manager = new IndexManager(tokenizer);
+    QueryExpander expander =
+        new QueryExpander(
+            prompt -> {
+              llmCalls.incrementAndGet();
+              return "[\"harpoon\"]";
+            },
+            tokenizer);
+    ApiServer server =
+        new ApiServer(
+            new OllamaClient("http://localhost:1"),
+            manager,
+            new SearchService(manager, tokenizer, dataDir, expander),
+            dataDir);
+
+    JavalinTest.test(
+        server.create(),
+        (app, client) -> {
+          post(app.port(), "/api/index", "{\"threads\": 2}");
+          HttpResponse<String> response =
+              post(app.port(), "/api/search", "{\"query\": \"whale\", \"mode\": \"keyword\"}");
+
+          assertEquals(200, response.statusCode());
+          assertEquals(0, llmCalls.get());
         });
   }
 }
