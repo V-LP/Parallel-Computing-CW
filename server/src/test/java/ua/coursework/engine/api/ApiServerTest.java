@@ -24,6 +24,7 @@ import ua.coursework.engine.index.IndexSnapshot;
 import ua.coursework.engine.index.IndexingInProgressException;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
+import ua.coursework.engine.search.SearchService;
 
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class ApiServerTest {
@@ -34,7 +35,12 @@ class ApiServerTest {
 
   /** Port 1 is closed, so Ollama is "unavailable" and the tests need no network. */
   private ApiServer apiServer(IndexManager manager, Path dir) {
-    return new ApiServer(new OllamaClient("http://localhost:1"), manager, dir);
+    Tokenizer tokenizer = new Tokenizer();
+    return new ApiServer(
+        new OllamaClient("http://localhost:1"),
+        manager,
+        new SearchService(manager, tokenizer, dir),
+        dir);
   }
 
   private ApiServer apiServer() {
@@ -212,6 +218,159 @@ class ApiServerTest {
 
           assertEquals(500, response.statusCode());
           assertEquals("error", json(response).get("status").asText());
+        });
+  }
+
+  // ------------------------------------------------------------ /api/search
+
+  private void writeWhaleBooks() throws IOException {
+    Files.writeString(dataDir.resolve("moby.txt"), "Call me Ishmael. The white whale hunted with a harpoon.");
+    Files.writeString(dataDir.resolve("ahab.txt"), "Captain Ahab saw a whale from the ship.");
+    Files.writeString(dataDir.resolve("garden.txt"), "Roses and tulips grow in the garden.");
+  }
+
+  @Test
+  void searchReturnsRankedResultsInTheContractFormat() throws IOException {
+    writeWhaleBooks();
+
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          post(server.port(), "/api/index", "{\"threads\": 2}");
+
+          HttpResponse<String> response =
+              post(server.port(), "/api/search", "{\"query\": \"white whale harpoon\", \"mode\": \"keyword\"}");
+
+          assertEquals(200, response.statusCode());
+          JsonNode json = json(response);
+          assertEquals(Set.of("results", "time_ms"), fieldNames(json));
+          assertTrue(json.get("time_ms").asLong() >= 0);
+          JsonNode results = json.get("results");
+          assertEquals(2, results.size());
+          JsonNode first = results.get(0);
+          assertEquals(Set.of("doc_id", "score", "snippet"), fieldNames(first));
+          assertEquals("moby.txt", first.get("doc_id").asText());
+          assertEquals(1.0, first.get("score").asDouble());
+          assertTrue(first.get("snippet").asText().contains("whale"));
+          assertEquals("ahab.txt", results.get(1).get("doc_id").asText());
+          assertTrue(results.get(1).get("score").asDouble() < 1.0);
+        });
+  }
+
+  @Test
+  void searchOnAnEmptyIndexGivesEmptyResults() {
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          HttpResponse<String> response =
+              post(server.port(), "/api/search", "{\"query\": \"whale\", \"mode\": \"keyword\"}");
+
+          assertEquals(200, response.statusCode());
+          assertEquals(0, json(response).get("results").size());
+        });
+  }
+
+  @Test
+  void queryWithOnlyStopWordsOrUnknownWordsGivesEmptyResults() throws IOException {
+    writeWhaleBooks();
+
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          post(server.port(), "/api/index", "{\"threads\": 2}");
+
+          for (String query : new String[] {"the and of", "zzzzqqqq"}) {
+            HttpResponse<String> response =
+                post(server.port(), "/api/search", "{\"query\": \"" + query + "\", \"mode\": \"keyword\"}");
+            assertEquals(200, response.statusCode(), query);
+            assertEquals(0, json(response).get("results").size(), query);
+          }
+        });
+  }
+
+  @Test
+  void missingModeMeansKeyword() throws IOException {
+    writeWhaleBooks();
+
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          post(server.port(), "/api/index", "{\"threads\": 2}");
+
+          HttpResponse<String> response = post(server.port(), "/api/search", "{\"query\": \"garden\"}");
+
+          assertEquals(200, response.statusCode());
+          assertEquals("garden.txt", json(response).get("results").get(0).get("doc_id").asText());
+        });
+  }
+
+  @Test
+  void invalidSearchRequestsGive400() throws IOException {
+    writeWhaleBooks();
+
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          post(server.port(), "/api/index", "{\"threads\": 2}");
+
+          for (String body :
+              new String[] {
+                "{\"query\": \"\", \"mode\": \"keyword\"}",
+                "{\"query\": \"   \", \"mode\": \"keyword\"}",
+                "{\"mode\": \"keyword\"}",
+                "{\"query\": \"whale\", \"mode\": \"semantic\"}",
+                "{\"query\": \"whale\", \"mode\": \"\"}",
+                "not json",
+                "null"
+              }) {
+            HttpResponse<String> response = post(server.port(), "/api/search", body);
+            assertEquals(400, response.statusCode(), body);
+            assertEquals("error", json(response).get("status").asText(), body);
+          }
+          assertEquals(400, post(server.port(), "/api/search", null).statusCode(), "no body");
+        });
+  }
+
+  @Test
+  void manyClientsCanSearchAtTheSameTime() throws IOException {
+    writeWhaleBooks();
+
+    JavalinTest.test(
+        apiServer().create(),
+        (server, client) -> {
+          post(server.port(), "/api/index", "{\"threads\": 2}");
+          String expected =
+              json(post(server.port(), "/api/search", "{\"query\": \"whale\"}")).get("results").toString();
+
+          Thread[] threads = new Thread[16];
+          boolean[] ok = new boolean[threads.length];
+          for (int t = 0; t < threads.length; t++) {
+            int id = t;
+            threads[t] =
+                new Thread(
+                    () -> {
+                      try {
+                        boolean allEqual = true;
+                        for (int i = 0; i < 10; i++) {
+                          HttpResponse<String> response =
+                              post(server.port(), "/api/search", "{\"query\": \"whale\"}");
+                          allEqual &=
+                              response.statusCode() == 200
+                                  && expected.equals(json(response).get("results").toString());
+                        }
+                        ok[id] = allEqual;
+                      } catch (Exception e) {
+                        ok[id] = false;
+                      }
+                    });
+            threads[t].start();
+          }
+          for (Thread thread : threads) {
+            thread.join();
+          }
+          for (boolean value : ok) {
+            assertTrue(value);
+          }
         });
   }
 }
