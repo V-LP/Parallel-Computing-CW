@@ -17,9 +17,12 @@ services:
     environment:
       PORT: "8080"
       DATA_DIR: /data
+      CHUNK_SIZE_KB: ${CHUNK_SIZE_KB:-100}
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
       OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-60}
+      # Size of the pool for WebSocket queries; empty = number of CPUs.
+      SEARCH_THREADS: ${SEARCH_THREADS:-}
     volumes:
       - ./data:/data:ro
     # Optional memory limit for the server container (the JVM heap is 75% of it). Example:
