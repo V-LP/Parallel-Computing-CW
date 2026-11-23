@@ -3,7 +3,6 @@ package ua.coursework.engine.search;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.nio.charset.MalformedInputException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,27 +11,35 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import ua.coursework.engine.index.BookEncoding;
+import ua.coursework.engine.index.Chunker;
 import ua.coursework.engine.index.Tokenizer;
 
 /**
  * Builds a short text fragment (about 200 characters) around the first occurrence of a query term
  * in a book. Only the book body is read (the Gutenberg header and footer are skipped), line by
  * line, and reading stops as soon as the fragment is complete.
+ *
+ * <p>A document id {@code path#N} means chunk N of the file. The same {@link Chunker} as in the
+ * indexer finds the lines of that chunk, and the snippet is taken only from them, so it never
+ * crosses the chunk boundary. An id without {@code #N} means the whole file.
  */
 final class SnippetExtractor {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnippetExtractor.class);
   private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-  private static final String ELLIPSIS = "…";
+  private static final String ELLIPSIS = "...";
 
   static final int SNIPPET_LENGTH = 200;
 
   private final Tokenizer tokenizer;
   private final Path dataDir;
+  private final Chunker chunker;
 
-  SnippetExtractor(Tokenizer tokenizer, Path dataDir) {
+  SnippetExtractor(Tokenizer tokenizer, Path dataDir, Chunker chunker) {
     this.tokenizer = tokenizer;
     this.dataDir = dataDir;
+    this.chunker = chunker;
   }
 
   /** Returns the snippet, or an empty string if there is none or the file cannot be read. */
@@ -41,17 +48,12 @@ final class SnippetExtractor {
       return "";
     }
     Pattern pattern = wholeWordPattern(terms);
-    Path file = dataDir.resolve(docId);
+    Chunker.DocRef ref = Chunker.parseDocId(docId);
+    Path file = dataDir.resolve(ref.path());
     try {
-      return readSnippet(file, pattern, StandardCharsets.UTF_8);
-    } catch (MalformedInputException e) {
-      // Not UTF-8: try again as ISO-8859-1, the same fallback as the indexer.
-    } catch (IOException | RuntimeException e) {
-      LOG.warn("Cannot build snippet for {}: {}", docId, e.toString());
-      return "";
-    }
-    try {
-      return readSnippet(file, pattern, StandardCharsets.ISO_8859_1);
+      // The same charset decision as in the indexer, otherwise the chunk boundaries could differ.
+      Charset charset = BookEncoding.detect(file);
+      return readSnippet(file, charset, pattern, ref.chunk());
     } catch (IOException | RuntimeException e) {
       LOG.warn("Cannot build snippet for {}: {}", docId, e.toString());
       return "";
@@ -72,15 +74,25 @@ final class SnippetExtractor {
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
   }
 
-  private String readSnippet(Path file, Pattern pattern, Charset charset) throws IOException {
+  private String readSnippet(Path file, Charset charset, Pattern pattern, int wantedChunk)
+      throws IOException {
     StringBuilder text = new StringBuilder(); // normalized body text read so far
     int[] match = {-1, -1}; // start and end of the first match in text
     int[] enough = {0}; // stop reading when text is at least this long
 
     try (BufferedReader reader = Files.newBufferedReader(file, charset)) {
-      tokenizer.forEachBodyLine(
+      chunker.forEachBodyLine(
+          tokenizer,
           reader,
-          line -> {
+          (chunk, line) -> {
+            if (wantedChunk > 0) {
+              if (chunk < wantedChunk) {
+                return true; // an earlier chunk: skip it
+              }
+              if (chunk > wantedChunk) {
+                return false; // the wanted chunk has ended
+              }
+            }
             String normalized = WHITESPACE.matcher(line).replaceAll(" ").strip();
             if (normalized.isEmpty()) {
               return true;

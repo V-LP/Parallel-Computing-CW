@@ -62,7 +62,8 @@ public final class SearchService {
     this.expander = expander;
     this.indexManager = Objects.requireNonNull(indexManager, "indexManager");
     this.tokenizer = Objects.requireNonNull(tokenizer, "tokenizer");
-    this.snippets = new SnippetExtractor(tokenizer, Objects.requireNonNull(dataDir, "dataDir"));
+    this.snippets = new SnippetExtractor(
+            tokenizer, Objects.requireNonNull(dataDir, "dataDir"), indexManager.chunker());
   }
 
   /**
