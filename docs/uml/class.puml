@@ -9,13 +9,45 @@ hide empty members
 package "api" {
   class ApiServer {
     +ApiServer(ollama, indexManager, searchService, dataDir)
+    +ApiServer(ollama, indexManager, searchService, dataDir, searchPool)
     +create(): Javalin
+    -addWebSocket(app)
   }
   note right of ApiServer
     Маршрути: /api/health, /api/index,
-    /api/search, /api/stats
-    (далі: /ws/search)
+    /api/search, /api/stats, WS /ws/search
+    (WS лише з searchPool; 4-арг. конструктор = тільки REST)
     DATA_DIR задає каталог датасету
+  end note
+
+  class WsSearchHandler {
+    +MAX_PENDING: int = 16
+    +MAX_QUERY_LENGTH: int = 1000
+    -connections: Map<Object, Connection>  (synchronizedMap)
+    +onConnect(session: Object, sink: Sink)
+    +onMessage(session: Object, text: String)
+    +onClose(session: Object)
+    +openConnections(): int
+  }
+  interface "WsSearchHandler.Sink" as Sink {
+    +send(text: String)
+    +isOpen(): boolean
+  }
+  class "WsSearchHandler.Connection" as Connection <<inner>> {
+    -sendLock: Object
+    -queueLock: Object
+    -pending: ArrayDeque<String>
+    -draining: boolean
+    -closed: boolean (volatile)
+    ~enqueue(text: String)
+    -drain()
+    -runPipeline(text: String)
+    -send(messages: WsMessage...): boolean
+  }
+  note bottom of Connection
+    Черга повідомлень на з'єднання, один воркер (drain)
+    обробляє їх по черзі. Усі записи в сесію під sendLock.
+    Розрив клієнта: send повертає false, пайплайн тихо зупиняється.
   end note
 
   class HealthResponse <<record>> {
@@ -54,7 +86,22 @@ package "api" {
   }
   class WsMessage <<record>> {
     stage: String
-    data: Object
+    data: Object  (null для done, поле не пишеться)
+    +queryExpansion(original, expandedTerms): WsMessage
+    +keywordSearch(results, timeMs): WsMessage
+    +error(message): WsMessage
+    +done(): WsMessage
+  }
+  class "WsMessage.Expansion" as WsExpansion <<record>> {
+    original: String
+    expandedTerms: List<String>
+  }
+  class "WsMessage.Search" as WsSearch <<record>> {
+    results: List<SearchResult>
+    timeMs: long
+  }
+  class "WsMessage.Failure" as WsFailure <<record>> {
+    message: String
   }
 }
 
@@ -129,6 +176,7 @@ package "index" {
     -indexing: AtomicBoolean
     +current(): IndexSnapshot
     +rebuild(dataDir: Path, threads: int): IndexSnapshot
+    +chunker(): Chunker
     +isIndexing(): boolean
   }
   class IndexSnapshot <<record>> {
@@ -139,9 +187,30 @@ package "index" {
   }
   class IndexingInProgressException <<exception>>
   class Indexer {
-    +Indexer(index, tokenizer)
+    +Indexer(index, tokenizer, chunker)
     +buildIndex(dataDir: Path, threads: int): int
+    +booksIndexed(): int
   }
+  class Chunker {
+    -limitChars: long
+    -minTailChars: long
+    +ofKb(kb: int): Chunker
+    +fromEnv(): Chunker
+    +isEnabled(): boolean
+    +docId(path: String, chunk: int): String
+    +parseDocId(docId: String): DocRef
+    +newSplitter(sink: LineSink): Splitter
+    +forEachBodyLine(tokenizer, reader, sink)
+  }
+  class BookEncoding {
+    +detect(file: Path): Charset
+  }
+  note bottom of Chunker
+    Чанк = документ, doc_id = path#N.
+    Закривається на першому рядку, де
+    розмір >= ліміту (CHUNK_SIZE_KB * 1024).
+    Хвіст < 1 КБ приєднується до попереднього.
+  end note
   class Tokenizer {
     +tokenize(text: String): List<String>
     +tokenize(reader: BufferedReader, sink: Consumer<String>)
@@ -213,7 +282,18 @@ ApiServer ..> SearchResponse
 ApiServer ..> StatsResponse
 ApiServer ..> ErrorResponse
 ApiServer ..> IndexingInProgressException : 409
-ApiServer ..> WsMessage
+ApiServer --> WsSearchHandler : /ws/search
+ApiServer --> ThreadPool : searchPool (власний, SEARCH_THREADS)
+WsSearchHandler --> ThreadPool : submit(drain)
+WsSearchHandler --> SearchService : expandQuery, searchExpanded
+WsSearchHandler *-- "N" Connection
+WsSearchHandler +-- Sink
+Connection --> Sink : send під sendLock
+WsSearchHandler ..> WsMessage
+WsMessage ..> WsExpansion
+WsMessage ..> WsSearch
+WsMessage ..> WsFailure
+WsSearch o-- SearchResult
 
 SearchService --> IndexManager : current().index()
 SearchService --> Tokenizer
@@ -239,6 +319,12 @@ IndexSnapshot --> ConcurrentInvertedIndex
 IndexManager ..> IndexingInProgressException : throws
 Indexer --> ThreadPool : submits file tasks
 Indexer --> Tokenizer
+Indexer --> Chunker : межі чанків
+Indexer --> BookEncoding : кодування файлу
+IndexManager --> Chunker
+SnippetExtractor --> Chunker : ті самі межі
+SnippetExtractor --> BookEncoding
+Chunker --> Tokenizer : рядки тіла книги
 Indexer --> ConcurrentInvertedIndex : writes
 
 ConcurrentInvertedIndex "1" *-- "N" Segment : striped locks

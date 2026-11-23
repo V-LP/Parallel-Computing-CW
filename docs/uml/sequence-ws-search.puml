@@ -4,57 +4,77 @@ title Послідовність: потоковий пошук (WebSocket /ws/s
 skinparam shadowing false
 autonumber
 
-actor "Клієнт\n(Web UI / CLI)" as Client
-participant ApiServer
+actor "Клієнт\n(Web UI / CLI / WsClient)" as Client
+participant "Jetty\n(потік з'єднання)" as Jetty
+participant WsSearchHandler
+participant "ThreadPool\n(SEARCH_THREADS)" as Pool
+participant "Connection\n(sendLock)" as Conn
 participant SearchService
 participant QueryExpander
-participant OllamaClient
 participant "Ollama" as Ollama
 
-Client -> ApiServer : відкрити /ws/search
-Client -> ApiServer : {"query":"..."}
+Client -> Jetty : відкрити /ws/search
+Jetty -> WsSearchHandler : onConnect(session, sink)
+Client -> Jetty : {"query":"..."}
+Jetty -> WsSearchHandler : onMessage(session, text)
+WsSearchHandler -> Conn : enqueue(text)
+note right of Conn : черга з'єднання (до 16);\nпереповнена -> error + done
+Conn -> Pool : submit(drain), якщо воркер ще не працює
+Jetty --> Client : (потік Jetty вільний, повертається одразу)
 
-== Етап 1: розширення запиту ==
-ApiServer -> SearchService : expandQuery(query)
-SearchService -> QueryExpander : expand(query)
+== Воркер пулу: drain() бере тексти з черги по одному ==
+Pool -> Conn : drain() -> runPipeline(text)
 
-alt такий запит уже є в LRU-кеші
-  QueryExpander --> SearchService : терміни з кешу
-else немає в кеші
-  QueryExpander -> QueryExpander : tryAcquire Semaphore(1)\n(чекає обмежений час)
-  alt семафор не отримано (модель зайнята)
-    QueryExpander --> SearchService : [] (fallback)
-  else семафор отримано
-    QueryExpander -> OllamaClient : generate(prompt)
-    OllamaClient -> Ollama : POST /api/generate\n{"model","prompt","stream":false,\n"options":{"temperature":0.2,"num_predict":120}}
-    alt Ollama відповіла
-      Ollama --> OllamaClient : {"response":"[\"harpoon\",...]"}
-      OllamaClient --> QueryExpander : текст
-      QueryExpander -> QueryExpander : parse: JSON-масив, інакше розбиття\nпо комах/рядках/маркерах;\nTokenizer, без дублікатів і слів запиту, до 8
-      QueryExpander --> SearchService : expanded_terms
-    else Ollama недоступна, таймаут, HTTP 500 або сміття
-      OllamaClient --> QueryExpander : OllamaException
+alt текст не JSON, немає query, порожній, не рядок або задовгий
+  Conn -> Conn : parseQuery -> BadInputException
+  Conn --> Client : {"stage":"error","data":{"message":"..."}}
+  Conn --> Client : {"stage":"done"}
+  note right : з'єднання лишається відкритим
+else коректний запит
+  == Етап 1: розширення запиту ==
+  Conn -> SearchService : expandQuery(query)
+  SearchService -> QueryExpander : expand(query)
+  alt є в LRU-кеші
+    QueryExpander --> SearchService : терміни з кешу
+  else немає в кеші
+    QueryExpander -> QueryExpander : tryAcquire Semaphore(1)\n(чекає обмежений час)
+    alt модель зайнята
       QueryExpander --> SearchService : [] (fallback)
-      note right : пошук піде лише по\nоригінальному запиту
+    else дозвіл отримано
+      QueryExpander -> Ollama : POST /api/generate
+      alt відповідь отримано
+        Ollama --> QueryExpander : {"response":"[...]"}
+        QueryExpander --> SearchService : expanded_terms (до 8)
+      else недоступна / таймаут / HTTP 500 / сміття
+        QueryExpander --> SearchService : [] (fallback)
+      end
     end
-    QueryExpander -> QueryExpander : release Semaphore
   end
+  SearchService --> Conn : QueryExpansion
+  Conn --> Client : {"stage":"query_expansion",\n"data":{"original":"...","expanded_terms":[...]}}
+  note right : надсилається одразу, під sendLock
+
+  == Етап 2: пошук ==
+  Conn -> SearchService : searchExpanded(expansion, 10)
+  note right of SearchService : оригінальні терміни 1.0,\nрозширені 0.5;\ntime_ms = лише цей етап
+  SearchService --> Conn : List<SearchHit>
+  Conn --> Client : {"stage":"keyword_search",\n"data":{"results":[...],"time_ms":12}}
+  Conn --> Client : {"stage":"done"}
 end
 
-SearchService --> ApiServer : QueryExpansion(original, originalTerms, expandedTerms)
-ApiServer --> Client : {"stage":"query_expansion",\n"data":{"original":"...","expanded_terms":[...]}}
+opt клієнт зник посеред роботи
+  Conn -> Conn : send повертає false (sink закритий або виняток)
+  note right : пайплайн тихо завершується,\nвинятків назовні немає,\nворкер вільний
+end
 
-== Етап 2: пошук ==
-ApiServer -> SearchService : searchExpanded(expansion, 10)
-note right of SearchService : оригінальні терміни з вагою 1.0,\nрозширені з вагою 0.5\n(keywordSearchWeighted)
-SearchService --> ApiServer : List<SearchHit>
-ApiServer --> Client : {"stage":"keyword_search",\n"data":{"results":[...],"time_ms":12}}
-ApiServer --> Client : {"stage":"done"}
+Client -> Jetty : закрити з'єднання
+Jetty -> WsSearchHandler : onClose(session)
+WsSearchHandler -> Conn : close() (черга очищається)
 
-note over ApiServer, Ollama
-  WebSocket реалізується на етапі 9. Етап 8 готує обидва виклики
-  (expandQuery і searchExpanded) окремо, щоб між ними можна було надіслати
-  повідомлення query_expansion.
+note over Jetty, Ollama
+  Повільна Ollama займає лише воркер пулу (і один дозвіл Semaphore),
+  потоки Jetty та інші з'єднання не блокуються.
+  Простій WS без трафіку ліміт Jetty 30 с збільшено до 10 хв (WS_IDLE_TIMEOUT).
 end note
 
 @enduml

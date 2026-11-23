@@ -1,5 +1,5 @@
 @startuml sequence-index
-title Послідовність: паралельна індексація (POST /api/index)
+title Послідовність: паралельна індексація з чанками (POST /api/index)
 
 skinparam shadowing false
 autonumber
@@ -29,28 +29,40 @@ else вільно
     note right : задача кладеться в чергу пулу\n(synchronized + notify)
   end
 
-  par воркери паралельно беруть задачі з черги
+  par воркери паралельно беруть задачі з черги (одна книга = одна задача)
     ThreadPool -> Worker : task.run()
-    Worker -> Tokenizer : tokenize(reader, sink)
-    note right of Tokenizer : читання рядок за рядком,\nшапка й футер Gutenberg пропускаються
-    Tokenizer --> Worker : терміни -> локальна HashMap (частоти)
-    alt файл не читається або порожній
+    Worker -> Worker : BookEncoding.detect(file)\n(UTF-8 або ISO-8859-1 для всього файлу)
+    Worker -> Tokenizer : Chunker.forEachBodyLine(reader, sink)
+    note right of Tokenizer : читання рядок за рядком,\nшапка й футер Gutenberg пропускаються;\nChunker дає кожному рядку номер чанка
+    alt файл не читається
       Worker -> Worker : лог WARN, файл пропущено
-    else є терміни
-      Worker -> Index : registerDocument(path)
-      Index --> Worker : docId
-      loop для кожного терміна документа
-        Worker -> Index : addPosting(term, docId, tf)
-        note right of Index : write-lock лише сегмента терміна
+    else читання тіла книги
+      loop для кожного рядка
+        Tokenizer --> Worker : (номер чанка, рядок)
+        Worker -> Worker : терміни рядка -> локальна HashMap (частоти чанка)
+        opt номер чанка змінився: попередній чанк закрито
+          alt у чанку є терміни
+            Worker -> Index : registerDocument("шлях#N")
+            Index --> Worker : docId
+            loop для кожного терміна чанка
+              Worker -> Index : addPosting(term, docId, tf)
+              note right of Index : write-lock лише сегмента терміна
+            end
+            Worker -> Index : setDocumentLength(docId, length)
+          else чанк без термінів
+            Worker -> Worker : чанк пропущено (номери інших не змінюються)
+          end
+          Worker -> Worker : локальну мапу очищено
+        end
       end
-      Worker -> Index : setDocumentLength(docId, length)
+      Worker -> Index : те саме для останнього чанка книги
     end
   end
 
   Indexer -> ThreadPool : shutdown()
   Indexer -> ThreadPool : awaitTermination(timeout, unit)
   ThreadPool --> Indexer : усі задачі виконано
-  Indexer --> IndexManager : documents_indexed
+  Indexer --> IndexManager : documents_indexed (кількість чанків)
   IndexManager -> IndexManager : current = new IndexSnapshot(...)\n(атомарна заміна старого індексу)
   IndexManager --> ApiServer : IndexSnapshot
   ApiServer --> Operator : 200 {"status":"ok","documents_indexed":N,"time_ms":T}
