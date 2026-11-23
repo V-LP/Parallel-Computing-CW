@@ -87,13 +87,11 @@ mvn spotless:apply     # автоформатування (Google Java Style)
 | POST | `/api/search` | `{ "query": "text", "mode": "keyword" }` | `{ "results": [{"doc_id": "...", "score": 0.95, "snippet": "..."}], "time_ms": T }` |
 | GET | `/api/stats` | - | `{ "documents": N, "index_build_time_ms": T, "threads_used": K }` |
 
-`/api/search` буде реалізовано на етапі 7.
-
-Помилки `POST /api/index` (тіло `{ "status": "error", "message": "..." }`):
+Помилки `POST /api/index` і `POST /api/search` (тіло `{ "status": "error", "message": "..." }`):
 
 | Код | Коли |
 |-----|------|
-| 400 | некоректний JSON або `threads` поза межами 1..1024 (без тіла або без `threads` береться кількість процесорів) |
+| 400 | `/api/index`: некоректний JSON або `threads` поза межами 1..1024 (без тіла або без `threads` береться кількість процесорів). `/api/search`: порожній або відсутній `query`, `mode` не `keyword`, некоректний JSON |
 | 409 | інша індексація ще триває |
 | 500 | каталог даних (`DATA_DIR`) недоступний |
 
@@ -153,6 +151,42 @@ curl localhost:8080/api/stats
   стоп-слова (`server/src/main/resources/stopwords.txt`), шапка й футер Project Gutenberg
   (між рядками `*** START OF` і `*** END OF`) пропускаються.
 
+## Пошук
+
+Пошук працює по останньому готовому індексу (спершу виконайте індексацію). Запит розбивається
+тим самим токенізатором, що й книги (нижній регістр, без стоп-слів). Режим один: `keyword`
+(якщо `mode` пропущено, береться `keyword`).
+
+```bash
+curl -s -X POST localhost:8080/api/search -H 'Content-Type: application/json' \
+  -d '{"query": "white whale harpoon", "mode": "keyword"}'
+
+curl -s -X POST localhost:8080/api/search -H 'Content-Type: application/json' \
+  -d '{"query": "sherlock holmes detective", "mode": "keyword"}'
+
+curl -s -X POST localhost:8080/api/search -H 'Content-Type: application/json' \
+  -d '{"query": "pride and prejudice marriage", "mode": "keyword"}'
+```
+
+Відповідь (формат):
+
+```json
+{"results": [{"doc_id": "<шлях відносно data/>", "score": 1.0, "snippet": "...фрагмент ~200 символів..."}],
+ "time_ms": 12}
+```
+
+- Повертається до 10 документів, найкращі першими; `score` від 0 до 1 (найкращий = 1.0, 4 знаки);
+  рівні оцінки впорядковуються за `doc_id`, тож відповідь завжди однакова.
+- Документ підходить, якщо містить хоча б один термін запиту (OR). Чим більше різних термінів
+  запиту він містить, тим вище його оцінка.
+- Запит лише зі стоп-слів (наприклад `the and of`), невідомі слова або порожній індекс дають
+  `200` з порожнім `results`.
+- `snippet` береться з тексту книги (без шапки Project Gutenberg), навколо першого входження
+  слова запиту; якщо файл не вдалося прочитати, `snippet` порожній.
+
+Формула: `tf = 1 + ln(freq)`, `idf = ln(1 + N/df)`, оцінка документа = сума `вага * tf * idf` по
+термінах запиту, помножена на частку знайдених термінів і поділена на `1 + ln(довжина документа)`.
+
 ## Пам'ять
 
 Індекс повністю зберігається в пам'яті JVM. У `Dockerfile` задано `-XX:MaxRAMPercentage=75`, тобто
@@ -160,6 +194,8 @@ curl localhost:8080/api/stats
 індексації в лозі сервера є рядок `Index ready: ...` з кількістю документів, термінів, постингів і
 використаною пам'яттю купи (`docker compose logs server`).
 
+- Під час повторної індексації старий індекс лишається в пам'яті, поки будується новий (щоб пошук
+  працював), тому на мить потрібно пам'яті приблизно на два індекси.
 - На Docker Desktop (Windows, macOS) перевірте в налаштуваннях, що віртуальній машині виділено
   достатньо пам'яті; значення за замовчуванням може бути замало для великого датасету.
 - Обмежити пам'ять сервера можна рядком `mem_limit` у `docker-compose.yml` (закоментований
