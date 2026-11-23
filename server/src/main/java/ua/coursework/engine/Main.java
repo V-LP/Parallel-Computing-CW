@@ -7,6 +7,7 @@ import ua.coursework.engine.api.ApiServer;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
+import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
 /** Server entry point: reads PORT, OLLAMA_URL and DATA_DIR from the environment and starts Javalin. */
@@ -15,6 +16,8 @@ public final class Main {
   private static final Logger LOG = LoggerFactory.getLogger(Main.class);
   private static final int DEFAULT_PORT = 8080;
   private static final String DEFAULT_DATA_DIR = "/data";
+  private static final int MODEL_ATTEMPTS = 5;
+  private static final long MODEL_PAUSE_MILLIS = 10_000;
 
   private Main() {}
 
@@ -23,12 +26,26 @@ public final class Main {
     Path dataDir = Path.of(readEnv("DATA_DIR", DEFAULT_DATA_DIR));
     Tokenizer tokenizer = new Tokenizer();
     IndexManager indexManager = new IndexManager(tokenizer);
-    SearchService searchService = new SearchService(indexManager, tokenizer, dataDir);
+    OllamaClient ollama = OllamaClient.fromEnv();
+    QueryExpander expander = new QueryExpander(ollama, tokenizer);
+    SearchService searchService = new SearchService(indexManager, tokenizer, dataDir, expander);
 
-    new ApiServer(OllamaClient.fromEnv(), indexManager, searchService, dataDir)
-        .create()
-        .start(port);
+    new ApiServer(ollama, indexManager, searchService, dataDir).create().start(port);
     LOG.info("Server started on port {}, data directory {}", port, dataDir);
+    startModelLoader(ollama);
+  }
+
+  /**
+   * Downloads the LLM model in the background, so the server accepts requests right away. Until the
+   * model is ready, query expansion simply falls back to the original query.
+   */
+  private static void startModelLoader(OllamaClient ollama) {
+    Thread loader =
+        new Thread(
+            () -> ollama.ensureModelAvailableWithRetries(MODEL_ATTEMPTS, MODEL_PAUSE_MILLIS),
+            "model-loader");
+    loader.setDaemon(true);
+    loader.start();
   }
 
   private static String readEnv(String name, String defaultValue) {
