@@ -13,6 +13,7 @@ import ua.coursework.engine.index.ConcurrentInvertedIndex;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.Posting;
 import ua.coursework.engine.index.Tokenizer;
+import ua.coursework.engine.llm.QueryExpander;
 
 /**
  * Keyword search with TF-IDF ranking.
@@ -40,11 +41,25 @@ public final class SearchService {
   /** Number of results returned when the caller does not choose. */
   public static final int DEFAULT_TOP_K = 10;
 
+  /** Weight of the words typed by the user. */
+  public static final double ORIGINAL_WEIGHT = 1.0;
+
+  /** Weight of the words added by the LLM: they are guesses, so they count half as much. */
+  public static final double EXPANDED_WEIGHT = 0.5;
+
   private final IndexManager indexManager;
   private final Tokenizer tokenizer;
   private final SnippetExtractor snippets;
+  private final QueryExpander expander; // null: query expansion is switched off
 
+  /** A service without query expansion ({@link #expandQuery} always finds nothing). */
   public SearchService(IndexManager indexManager, Tokenizer tokenizer, Path dataDir) {
+    this(indexManager, tokenizer, dataDir, null);
+  }
+
+  public SearchService(
+      IndexManager indexManager, Tokenizer tokenizer, Path dataDir, QueryExpander expander) {
+    this.expander = expander;
     this.indexManager = Objects.requireNonNull(indexManager, "indexManager");
     this.tokenizer = Objects.requireNonNull(tokenizer, "tokenizer");
     this.snippets = new SnippetExtractor(tokenizer, Objects.requireNonNull(dataDir, "dataDir"));
@@ -57,6 +72,41 @@ public final class SearchService {
   public List<SearchHit> search(String query, int topK) {
     Objects.requireNonNull(query, "query");
     return keywordSearch(tokenizer.tokenize(query), topK);
+  }
+
+  /**
+   * Stage 1 of a search with expansion: tokenizes the query and asks the LLM for extra terms. It
+   * never fails: when the LLM cannot help, the expanded list is empty. A WebSocket handler calls
+   * this first, sends the expansion to the client, and then calls {@link #searchExpanded}.
+   */
+  public QueryExpansion expandQuery(String query) {
+    Objects.requireNonNull(query, "query");
+    List<String> originalTerms = tokenizer.tokenize(query);
+    List<String> expanded =
+        expander == null || originalTerms.isEmpty() ? List.of() : expander.expand(query);
+    return new QueryExpansion(query, originalTerms, expanded);
+  }
+
+  /**
+   * Stage 2: searches with the original terms (weight {@value #ORIGINAL_WEIGHT}) and the expanded
+   * terms (weight {@value #EXPANDED_WEIGHT}). With no expanded terms this equals a plain search.
+   */
+  public List<SearchHit> searchExpanded(QueryExpansion expansion, int topK) {
+    Objects.requireNonNull(expansion, "expansion");
+    List<WeightedTerm> terms = new ArrayList<>();
+    for (String term : expansion.originalTerms()) {
+      terms.add(new WeightedTerm(term, ORIGINAL_WEIGHT));
+    }
+    for (String term : expansion.expandedTerms()) {
+      terms.add(new WeightedTerm(term, EXPANDED_WEIGHT));
+    }
+    return keywordSearchWeighted(terms, topK);
+  }
+
+  /** Both stages in one call: {@link #expandQuery} and then {@link #searchExpanded}. */
+  public ExpandedSearch searchWithExpansion(String query, int topK) {
+    QueryExpansion expansion = expandQuery(query);
+    return new ExpandedSearch(expansion, searchExpanded(expansion, topK));
   }
 
   /** Searches for already tokenized terms, all with weight 1.0. */
