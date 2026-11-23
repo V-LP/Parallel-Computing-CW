@@ -13,28 +13,48 @@ participant "Ollama" as Ollama
 
 Client -> ApiServer : відкрити /ws/search
 Client -> ApiServer : {"query":"..."}
+
+== Етап 1: розширення запиту ==
 ApiServer -> SearchService : expandQuery(query)
 SearchService -> QueryExpander : expand(query)
-QueryExpander -> QueryExpander : acquire Semaphore(1)\n(одна генерація за раз)
 
-alt Ollama доступна
-  QueryExpander -> OllamaClient : generate(prompt)
-  OllamaClient -> Ollama : POST /api/generate
-  Ollama --> OllamaClient : відповідь моделі
-  OllamaClient --> QueryExpander : текст
-  QueryExpander --> SearchService : expanded_terms
-else Ollama недоступна (fallback)
-  QueryExpander --> SearchService : [] (порожній список)
-  note right : пошук піде лише по\nоригінальному запиту
+alt такий запит уже є в LRU-кеші
+  QueryExpander --> SearchService : терміни з кешу
+else немає в кеші
+  QueryExpander -> QueryExpander : tryAcquire Semaphore(1)\n(чекає обмежений час)
+  alt семафор не отримано (модель зайнята)
+    QueryExpander --> SearchService : [] (fallback)
+  else семафор отримано
+    QueryExpander -> OllamaClient : generate(prompt)
+    OllamaClient -> Ollama : POST /api/generate\n{"model","prompt","stream":false,\n"options":{"temperature":0.2,"num_predict":120}}
+    alt Ollama відповіла
+      Ollama --> OllamaClient : {"response":"[\"harpoon\",...]"}
+      OllamaClient --> QueryExpander : текст
+      QueryExpander -> QueryExpander : parse: JSON-масив, інакше розбиття\nпо комах/рядках/маркерах;\nTokenizer, без дублікатів і слів запиту, до 8
+      QueryExpander --> SearchService : expanded_terms
+    else Ollama недоступна, таймаут, HTTP 500 або сміття
+      OllamaClient --> QueryExpander : OllamaException
+      QueryExpander --> SearchService : [] (fallback)
+      note right : пошук піде лише по\nоригінальному запиту
+    end
+    QueryExpander -> QueryExpander : release Semaphore
+  end
 end
 
-QueryExpander -> QueryExpander : release Semaphore
-SearchService --> ApiServer : expanded_terms
+SearchService --> ApiServer : QueryExpansion(original, originalTerms, expandedTerms)
 ApiServer --> Client : {"stage":"query_expansion",\n"data":{"original":"...","expanded_terms":[...]}}
 
-ApiServer -> SearchService : search(original + expanded_terms)
-SearchService --> ApiServer : SearchResponse
+== Етап 2: пошук ==
+ApiServer -> SearchService : searchExpanded(expansion, 10)
+note right of SearchService : оригінальні терміни з вагою 1.0,\nрозширені з вагою 0.5\n(keywordSearchWeighted)
+SearchService --> ApiServer : List<SearchHit>
 ApiServer --> Client : {"stage":"keyword_search",\n"data":{"results":[...],"time_ms":12}}
 ApiServer --> Client : {"stage":"done"}
+
+note over ApiServer, Ollama
+  WebSocket реалізується на етапі 9. Етап 8 готує обидва виклики
+  (expandQuery і searchExpanded) окремо, щоб між ними можна було надіслати
+  повідомлення query_expansion.
+end note
 
 @enduml

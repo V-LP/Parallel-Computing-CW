@@ -64,6 +64,20 @@ package "search" {
     +search(query: String, topK: int): List<SearchHit>
     +keywordSearch(terms: List<String>, topK: int): List<SearchHit>
     +keywordSearchWeighted(terms: List<WeightedTerm>, topK: int): List<SearchHit>
+    +ORIGINAL_WEIGHT: double = 1.0
+    +EXPANDED_WEIGHT: double = 0.5
+    +expandQuery(query: String): QueryExpansion
+    +searchExpanded(expansion: QueryExpansion, topK: int): List<SearchHit>
+    +searchWithExpansion(query: String, topK: int): ExpandedSearch
+  }
+  class QueryExpansion <<record>> {
+    original: String
+    originalTerms: List<String>
+    expandedTerms: List<String>
+  }
+  class ExpandedSearch <<record>> {
+    expansion: QueryExpansion
+    hits: List<SearchHit>
   }
   class WeightedTerm <<record>> {
     term: String
@@ -86,15 +100,27 @@ package "search" {
 }
 
 package "llm" {
+  interface TextGenerator {
+    +generate(prompt: String): String
+  }
   class QueryExpander {
     -llmGate: Semaphore(1)
+    -cache: LRU LinkedHashMap
+    +MAX_TERMS: int = 8
     +expand(query: String): List<String>
+    ~parse(answer: String, queryTerms: List<String>): List<String>
   }
   class OllamaClient {
     -baseUrl: String
+    -model: String
+    -generateTimeout: Duration
+    +fromEnv(): OllamaClient
     +isAvailable(): boolean
     +generate(prompt: String): String
+    +ensureModelAvailable()
+    +ensureModelAvailableWithRetries(attempts: int, pauseMillis: long): boolean
   }
+  class OllamaException <<checked>>
 }
 
 package "index" {
@@ -191,7 +217,10 @@ ApiServer ..> WsMessage
 
 SearchService --> IndexManager : current().index()
 SearchService --> Tokenizer
-SearchService ..> QueryExpander : етап 8
+SearchService ..> QueryExpander : expandQuery
+SearchService ..> QueryExpansion : returns
+SearchService ..> ExpandedSearch : returns
+ExpandedSearch o-- QueryExpansion
 SearchService --> WeightedTerm
 SearchService ..> SearchHit : returns
 SearchService --> SnippetExtractor : top-K snippets
@@ -199,7 +228,10 @@ SnippetExtractor --> Tokenizer : body lines
 ApiServer ..> SearchRequest
 SearchResponse "1" o-- "*" SearchResult
 
-QueryExpander --> OllamaClient
+QueryExpander --> TextGenerator
+OllamaClient ..|> TextGenerator
+OllamaClient ..> OllamaException : throws
+TextGenerator ..> OllamaException : throws
 
 IndexManager --> Indexer : creates for each build
 IndexManager o-- IndexSnapshot : publishes
