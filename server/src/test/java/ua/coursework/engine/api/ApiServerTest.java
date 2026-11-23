@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import ua.coursework.engine.index.Chunker;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.IndexSnapshot;
 import ua.coursework.engine.index.IndexingInProgressException;
@@ -405,6 +406,30 @@ class ApiServerTest {
 
           assertEquals(200, response.statusCode());
           assertEquals(0, llmCalls.get());
+        });
+  }
+
+  @Test
+  void searchResultsCarryTheChunkNumberInDocId() throws IOException {
+    StringBuilder text = new StringBuilder();
+    for (int i = 0; i < 100; i++) {
+      text.append(String.format("whale%03d sea ship ocean harpoon%n", i));
+    }
+    Files.writeString(dataDir.resolve("moby.txt"), text.toString());
+    IndexManager manager = new IndexManager(new Tokenizer(), new Chunker(1_000, 100));
+
+    JavalinTest.test(
+        apiServer(manager, dataDir).create(),
+        (server, client) -> {
+          HttpResponse<String> indexed = post(server.port(), "/api/index", "{\"threads\": 2}");
+          assertTrue(json(indexed).get("documents_indexed").asInt() > 1);
+
+          JsonNode results =
+              json(post(server.port(), "/api/search", "{\"query\": \"whale080\"}")).get("results");
+
+          assertEquals(1, results.size());
+          assertTrue(results.get(0).get("doc_id").asText().matches("moby\\.txt#\\d+"));
+          assertTrue(results.get(0).get("snippet").asText().contains("whale080"));
         });
   }
 }
