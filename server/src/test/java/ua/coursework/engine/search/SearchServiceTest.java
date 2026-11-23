@@ -352,11 +352,11 @@ class SearchServiceTest {
 
     assertTrue(snippet.contains("whale"));
     assertTrue(snippet.length() >= 150 && snippet.length() <= 230, "length " + snippet.length());
-    assertTrue(snippet.startsWith("…") && snippet.endsWith("…"), snippet);
+    assertTrue(snippet.startsWith("...") && snippet.endsWith("..."), snippet);
     assertFalse(snippet.contains("\n") || snippet.contains("  "));
     List<String> known =
         List.of("lorem", "ipsum", "dolor", "sit", "amet", "whale", "consectetur", "adipiscing", "elit");
-    String[] pieces = snippet.substring(1, snippet.length() - 1).split(" ");
+    String[] pieces = snippet.substring(3, snippet.length() - 3).split(" ");
     assertTrue(known.contains(pieces[0]), "cut inside a word: " + pieces[0]);
     assertTrue(known.contains(pieces[pieces.length - 1]), "cut inside a word: " + snippet);
   }
