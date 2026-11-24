@@ -32,5 +32,18 @@ services:
       ollama:
         condition: service_healthy
 
+  # Console client. Not started by "docker compose up" (profile "cli"); use:
+  #   docker compose run --rm cli "white whale"
+  cli:
+    profiles: ["cli"]
+    build:
+      context: .
+      dockerfile: cli/Dockerfile
+    environment:
+      SEARCH_URL: http://server:8080
+    depends_on:
+      server:
+        condition: service_started
+
 volumes:
   ollama_models:
