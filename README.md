@@ -18,12 +18,12 @@
 - клієнти: консольний (CLI) і веб-інтерфейс (Web UI);
 - запуск однією командою `docker compose up`.
 
-> Статус: реалізовано індексацію, пошук за ключовими словами, клієнт Ollama з розширенням запиту (етап 8) і WebSocket `/ws/search` (етап 9). CLI і Web UI додаються поетапно, див. `CONTEXT.md`.
+> Статус: реалізовано індексацію, пошук за ключовими словами, клієнт Ollama з розширенням запиту (етап 8) WebSocket `/ws/search` (етап 9) і консольний клієнт CLI (етап 10). Web UI додається поетапно, див. `CONTEXT.md`.
 
 ## Вимоги
 
 - Docker та Docker Compose (для запуску системи);
-- JDK 21 та Maven 3.9+ (лише для локальної розробки без Docker);
+- JDK 21 та Maven 3.9+ (лише для локальної розробки без Docker; CLI можна запускати і без них через `docker compose run --rm cli`);
 - Python 3.10+ з `matplotlib` (лише для бенчмарків у `bench/`);
 - місце під розпакований датасет (за описом завдання ~1,7 ГБ для `D1.7GB.zip`);
 - пам'ять: індекс зберігається в оперативній пам'яті (див. розділ "Пам'ять").
@@ -141,6 +141,114 @@ java tools/WsClient.java "white whale" --url ws://localhost:8080/ws/search --tim
 
 (Часи лише ілюстрація формату, не вимірювання.) Код виходу: 0 = отримано `done`, 1 = помилка
 з'єднання або таймаут.
+
+## CLI
+
+Консольний клієнт у модулі `cli` (пакет `ua.coursework.cli`, лише JDK, без Javalin). За замовчуванням
+він шукає через WebSocket `/ws/search` і друкує етапи в міру надходження.
+
+### Запуск
+
+Сервер має працювати (`docker compose up`). Скрипти лежать у корені репозиторію:
+
+| ОС | Команда |
+|----|---------|
+| Linux, macOS, Git Bash | `./search "white whale"` |
+| Windows (cmd) | `search.cmd "white whale"` |
+| Windows (PowerShell) | `.\search.ps1 "white whale"` |
+
+Скрипт запускає `cli/target/search-cli.jar`. Якщо jar ще немає, він сам збирає його
+(`mvn -q -pl cli -am package -DskipTests`), а якщо немає Maven або JDK, пише зрозуміле повідомлення.
+Після зміни коду CLI перезберіть jar вручну тією ж командою.
+
+Без локальної Java, через Docker (сервіс `cli` має профіль `cli`, тому `docker compose up` його не
+запускає):
+
+```bash
+docker compose run --rm cli "white whale"
+docker compose run --rm cli --health
+```
+
+### Команди й параметри
+
+```text
+search "запит"              пошук через WebSocket (розширення запиту + пошук)
+search white whale          лапки не обов'язкові: слова з'єднуються пробілом
+search "запит" --rest       пошук через POST /api/search (mode: keyword, без розширення)
+search "запит" --json       друкувати сирий JSON (WebSocket: по рядку на повідомлення)
+search --health             GET /api/health
+search --stats              GET /api/stats
+search --index              POST /api/index (потоки = кількість CPU)
+search --index 4            POST /api/index з threads = 4
+search --help               довідка
+search - < query.txt        запит зі stdin (UTF-8)
+```
+
+| Параметр | За замовчуванням | Опис |
+|----------|------------------|------|
+| `--url АДРЕСА` | `$SEARCH_URL`, інакше `http://localhost:8080` | адреса сервера (`http(s)://`, `ws(s)://` або `host:port`) |
+| `--timeout СЕК` | пошук 120 с, `--health` і `--stats` 10 с, `--index` 30 хв | таймаут очікування відповіді |
+| `--rest` | вимкнено | пошук через REST замість WebSocket |
+| `--json` | вимкнено | сирий JSON замість форматованого тексту |
+
+Приклад виводу (формат ілюстративний, числа не є вимірюванням):
+
+```text
+$ ./search "white whale"
+Розширення: moby, dick, harpoon
+1. melville/moby.txt#12  1.0000
+    ...the white whale swam slowly past the ship, and the crew watched in silence while the
+    captain gave his orders...
+2. other/sea.txt#3  0.4120
+    ...
+Час пошуку: 14 мс
+Готово.
+```
+
+Якщо Ollama недоступна, перший рядок такий: `Розширення: немає (Ollama недоступна)`, а пошук іде по
+оригінальному запиту. Сніпети переносяться по ширині 100 символів.
+
+```powershell
+.\search.ps1 --health
+# Сервер: ok
+# Ollama: доступна
+.\search.ps1 --stats
+# Документів: 15234
+# Час побудови індексу: 48210 мс
+# Потоків індексації: 8
+.\search.ps1 --index 8        # довга операція, таймаут 30 хв
+# Проіндексовано документів: 15234
+# Час: 48210 мс (48.2 с)
+$env:SEARCH_URL = "http://192.168.0.10:8080"; .\search.ps1 "white whale"
+```
+
+### Коди виходу й помилки
+
+| Код | Коли |
+|-----|------|
+| 0 | успіх |
+| 1 | сервер недоступний, HTTP 400/409/500 (виводиться повідомлення сервера), таймаут, обрив WebSocket |
+| 2 | неправильні аргументи: порожній запит, невідомий параметр, дві команди разом |
+
+Помилки йдуть у stderr, результати в stdout. Порожній запит не звертається до сервера й друкує
+підказку про використання.
+
+### Кирилиця і кодування (Windows)
+
+CLI надсилає запит і читає відповідь у UTF-8 і завжди друкує UTF-8 незалежно від налаштувань
+системи. Консоль Windows за замовчуванням не UTF-8, тому для правильного відображення потрібна
+кодова сторінка 65001:
+
+```powershell
+chcp 65001
+```
+
+Скрипти `search.cmd` і `search.ps1` самі вмикають UTF-8 на час роботи й повертають попередню
+кодову сторінку після виходу, тож окремо `chcp` потрібен лише при прямому запуску
+`java -jar cli/target/search-cli.jar ...`. Для читабельного шрифту в консолі оберіть Consolas або
+Cascadia. Якщо в запиті кирилиця перетворюється на `?` (залежить від системної кодової сторінки
+Windows при передачі аргументів у Java), передайте запит через stdin:
+`"біла вага" | .\search.ps1 -` (у `cmd` спершу `chcp 65001`, потім `echo біла вага | search.cmd -`).
 
 ## Датасет
 
@@ -277,6 +385,8 @@ $env:OLLAMA_MODEL = "llama3.2:1b"; docker compose up --build
 блокує запуск. Прогрес видно в логу: `docker compose logs -f server`. Поки модель не готова, пошук
 працює без розширення. Перший запуск може тривати кілька хвилин (завантаження ~1 ГБ).
 
+**Прогрів.** Запит до Ollama містить `"keep_alive": "30m"` (модель лишається в пам'яті 30 хвилин), а після успішної перевірки моделі сервер робить один короткий фоновий запит `Say OK`, щоб модель завантажилась у пам'ять ще до першого пошуку користувача. Помилка прогріву лише потрапляє в лог (`Model warm-up failed`), пошук працює і без неї.
+
 **Перевірка:**
 
 ```bash
@@ -313,8 +423,13 @@ docker compose logs server | grep -i "model"    # чи модель готова
 ## Тести
 
 ```bash
-mvn test
+mvn test                 # усі модулі
+mvn -pl cli test         # лише CLI
 ```
+
+Тести CLI не потребують запущеного сервера: REST-режим, `--health`, `--stats` і `--index`
+перевіряються проти фейкового сервера на `com.sun.net.httpserver.HttpServer`, WebSocket-режим
+проти мінімального WebSocket-сервера на сокетах (`FakeWsServer`).
 
 ## Структура проєкту
 
@@ -328,7 +443,8 @@ mvn test
 │       ├── search/          # SearchService
 │       └── llm/             # клієнт Ollama, розширення запиту
 ├── server/src/main/resources/web/   # Web UI
-├── cli/                     # консольний клієнт
+├── cli/                     # консольний клієнт (ua.coursework.cli), Dockerfile для docker compose run
+├── search, search.cmd, search.ps1   # скрипти запуску CLI
 ├── tools/WsClient.java      # ручний WebSocket-клієнт (java tools/WsClient.java "query")
 ├── bench/                   # бенчмарки та графіки (Python)
 ├── docs/uml/                # UML-діаграми (.puml) і рендер у out/

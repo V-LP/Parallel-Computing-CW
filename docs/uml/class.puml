@@ -1,5 +1,5 @@
 @startuml class
-title Діаграма класів (пакети ua.coursework.engine.*)
+title Діаграма класів (ua.coursework.engine.* і ua.coursework.cli)
 
 skinparam shadowing false
 skinparam classAttributeIconSize 0
@@ -163,11 +163,15 @@ package "llm" {
     -generateTimeout: Duration
     +fromEnv(): OllamaClient
     +isAvailable(): boolean
-    +generate(prompt: String): String
+    +generate(prompt: String): String  (keep_alive 30m)
     +ensureModelAvailable()
     +ensureModelAvailableWithRetries(attempts: int, pauseMillis: long): boolean
   }
   class OllamaException <<checked>>
+  note bottom of OllamaClient
+    Main після ensureModelAvailable робить один
+    прогрів generate("Say OK"); помилка лише в лог.
+  end note
 }
 
 package "index" {
@@ -273,6 +277,71 @@ package "concurrent" {
   end note
 }
 
+package "cli" {
+  class "cli.Main" as CliMain {
+    +main(args)
+    UTF-8 PrintStream для out/err
+  }
+  class Cli {
+    +EXIT_OK = 0, EXIT_FAILURE = 1, EXIT_USAGE = 2
+    +run(args: String[]): int
+    -search(...)
+    -health(...)
+    -stats(...)
+    -index(...)
+    -readQuery(query): String  («-» = stdin, UTF-8)
+  }
+  class ArgsParser {
+    +{static} parse(args): CliOptions
+  }
+  class CliOptions <<record>> {
+    command: Command
+    query: String
+    url: String
+    timeoutSeconds: Integer
+    rest: boolean
+    json: boolean
+    indexThreads: Integer
+  }
+  enum "CliOptions.Command" as CliCommand {
+    SEARCH
+    HEALTH
+    STATS
+    INDEX
+    HELP
+  }
+  class ServerUrl <<record>> {
+    http: String
+    ws: String
+    +{static} parse(raw): ServerUrl
+  }
+  class ServerClient {
+    +get(path, timeout): String
+    +post(path, json, timeout): String
+    ~{static} describeHttpError(status, body): String
+  }
+  class WsSearch {
+    +search(requestJson, timeout, renderer)
+  }
+  class StageRenderer {
+    +accept(message: String): boolean
+    +failed(): boolean
+  }
+  class ResultFormatter {
+    +LINE_WIDTH = 100
+    +{static} expansionLine(terms): String
+    +{static} printResults(out, results, timeMs)
+    +{static} wrap(text, width): List<String>
+  }
+  class CliException <<checked, exit 1>>
+  class UsageException <<checked, exit 2>>
+}
+note bottom of WsSearch
+  java.net.http.WebSocket (JDK).
+  Кожне повідомлення одразу йде в StageRenderer,
+  тож етапи друкуються у міру надходження.
+end note
+
 ApiServer --> SearchService
 ApiServer --> IndexManager
 ApiServer --> OllamaClient : health
@@ -326,6 +395,21 @@ SnippetExtractor --> Chunker : ті самі межі
 SnippetExtractor --> BookEncoding
 Chunker --> Tokenizer : рядки тіла книги
 Indexer --> ConcurrentInvertedIndex : writes
+
+CliMain --> Cli
+Cli --> ArgsParser
+ArgsParser --> CliOptions
+CliOptions +-- CliCommand
+Cli --> ServerUrl
+Cli --> ServerClient : REST: --rest, --health, --stats, --index
+Cli --> WsSearch : пошук за замовчуванням
+WsSearch --> StageRenderer : кожне повідомлення одразу
+Cli --> ResultFormatter
+StageRenderer --> ResultFormatter
+ArgsParser ..> UsageException : throws
+ServerClient ..> CliException : throws
+WsSearch ..> CliException : throws
+note "CLI не залежить від серверних класів:\nговорить із сервером лише через HTTP/WebSocket." as CliNote
 
 ConcurrentInvertedIndex "1" *-- "N" Segment : striped locks
 Segment "1" *-- "*" Entry : bucket lists

@@ -27,8 +27,9 @@ WebUser --> UCWs
 WebUser --> UCStats
 WebUser --> UCHealth
 
-CliUser --> UCSearch
-CliUser --> UCWs
+CliUser --> UCSearch : --rest
+CliUser --> UCWs : за замовчуванням
+CliUser --> UCIndex : --index
 CliUser --> UCStats
 CliUser --> UCHealth
 

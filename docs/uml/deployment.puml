@@ -5,7 +5,7 @@ skinparam shadowing false
 
 actor "Користувач" as User
 node "Браузер\n(Web UI)" as Browser
-node "CLI\n(./search)" as Cli
+node "CLI\n(./search, search.cmd)\nабо docker compose run --rm cli" as Cli
 
 node "Хост: docker compose up" as Host {
   node "Контейнер server\n(eclipse-temurin:21-jre)" as Server {
