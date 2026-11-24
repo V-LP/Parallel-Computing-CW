@@ -1,0 +1,8 @@
+# Override for the benchmarks. Used together with the main file:
+#   docker compose -f docker-compose.yml -f bench/docker-compose.bench.yml ...
+# It replaces the dataset mount of the "server" service (compose merges volumes by the
+# container path, so "/data" from this file wins). run_bench.py sets BENCH_DATA_DIR itself.
+services:
+  server:
+    volumes:
+      - ${BENCH_DATA_DIR:-./data}:/data:ro
