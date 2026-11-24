@@ -32,6 +32,8 @@ public class OllamaClient implements TextGenerator {
 
   private static final double TEMPERATURE = 0.2;
   private static final int MAX_NEW_TOKENS = 120;
+  /** How long Ollama keeps the model in memory after a request (saves the reload time). */
+  private static final String KEEP_ALIVE = "30m";
 
   private final String baseUrl;
   private final String model;
@@ -99,8 +101,8 @@ public class OllamaClient implements TextGenerator {
   }
 
   /**
-   * Sends the prompt to POST /api/generate (no streaming, temperature 0.2, at most 120 new tokens)
-   * and returns the "response" field.
+   * Sends the prompt to POST /api/generate (no streaming, temperature 0.2, at most 120 new tokens,
+   * model kept loaded for 30 minutes) and returns the "response" field.
    *
    * <p>The timeout covers the whole generation, because with {@code stream:false} Ollama answers
    * only when the text is complete.
@@ -114,6 +116,7 @@ public class OllamaClient implements TextGenerator {
     body.put("model", model);
     body.put("prompt", prompt);
     body.put("stream", false);
+    body.put("keep_alive", KEEP_ALIVE);
     ObjectNode options = body.putObject("options");
     options.put("temperature", TEMPERATURE);
     options.put("num_predict", MAX_NEW_TOKENS);

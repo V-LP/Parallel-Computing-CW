@@ -66,6 +66,7 @@ class OllamaClientTest {
       assertTrue(body.get("stream").isBoolean() && !body.get("stream").asBoolean());
       assertEquals(0.2, body.get("options").get("temperature").asDouble());
       assertEquals(120, body.get("options").get("num_predict").asInt());
+      assertEquals("30m", body.get("keep_alive").asText());
     }
   }
 

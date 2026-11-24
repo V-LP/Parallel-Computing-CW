@@ -10,6 +10,7 @@ import ua.coursework.engine.index.Chunker;
 import ua.coursework.engine.index.IndexManager;
 import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
+import ua.coursework.engine.llm.OllamaException;
 import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
@@ -60,16 +61,34 @@ public final class Main {
   }
 
   /**
-   * Downloads the LLM model in the background, so the server accepts requests right away. Until the
-   * model is ready, query expansion simply falls back to the original query.
+   * Downloads the LLM model in the background, so the server accepts requests right away, and then
+   * warms it up. Until the model is ready, query expansion simply falls back to the original query.
    */
   private static void startModelLoader(OllamaClient ollama) {
     Thread loader =
         new Thread(
-            () -> ollama.ensureModelAvailableWithRetries(MODEL_ATTEMPTS, MODEL_PAUSE_MILLIS),
+            () -> {
+              if (ollama.ensureModelAvailableWithRetries(MODEL_ATTEMPTS, MODEL_PAUSE_MILLIS)) {
+                warmUp(ollama);
+              }
+            },
             "model-loader");
     loader.setDaemon(true);
     loader.start();
+  }
+
+  /**
+   * One short request, so Ollama loads the model into memory now and the first real query of a
+   * user does not wait for it. A failure is only logged: the search works without the model.
+   */
+  private static void warmUp(OllamaClient ollama) {
+    long start = System.nanoTime();
+    try {
+      ollama.generate("Say OK");
+      LOG.info("Ollama model warmed up in {} ms", (System.nanoTime() - start) / 1_000_000);
+    } catch (OllamaException e) {
+      LOG.warn("Model warm-up failed (ignored): {}", e.getMessage());
+    }
   }
 
   private static String readEnv(String name, String defaultValue) {
