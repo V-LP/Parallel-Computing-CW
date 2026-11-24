@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayDeque;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +52,8 @@ public final class WsSearchHandler {
 
   private final SearchService searchService;
   private final ThreadPool pool;
-  private final Map<Object, Connection> connections =
-      Collections.synchronizedMap(new HashMap<>()); // key = the WebSocket session
+  /** Key = the WebSocket session. Every access is inside {@code synchronized (connections)}. */
+  private final Map<Object, Connection> connections = new HashMap<>();
 
   public WsSearchHandler(SearchService searchService, ThreadPool pool) {
     this.searchService = Objects.requireNonNull(searchService, "searchService");
@@ -63,13 +62,19 @@ public final class WsSearchHandler {
 
   /** A client connected. {@code session} identifies the connection in the next calls. */
   public void onConnect(Object session, Sink sink) {
-    connections.put(
-        Objects.requireNonNull(session, "session"), new Connection(Objects.requireNonNull(sink)));
+    Objects.requireNonNull(session, "session");
+    Connection connection = new Connection(Objects.requireNonNull(sink));
+    synchronized (connections) {
+      connections.put(session, connection);
+    }
   }
 
   /** A text message arrived. Returns at once: the work runs in the pool. */
   public void onMessage(Object session, String text) {
-    Connection connection = connections.get(session);
+    Connection connection;
+    synchronized (connections) {
+      connection = connections.get(session);
+    }
     if (connection == null) {
       LOG.debug("Message from an unknown or closed session ignored");
       return;
@@ -79,7 +84,10 @@ public final class WsSearchHandler {
 
   /** The client left (or the connection failed). Work that is still queued is dropped. */
   public void onClose(Object session) {
-    Connection connection = connections.remove(session);
+    Connection connection;
+    synchronized (connections) {
+      connection = connections.remove(session);
+    }
     if (connection != null) {
       connection.close();
     }
@@ -87,7 +95,9 @@ public final class WsSearchHandler {
 
   /** Number of connections that are open now. */
   public int openConnections() {
-    return connections.size();
+    synchronized (connections) {
+      return connections.size();
+    }
   }
 
   /** One client. */
