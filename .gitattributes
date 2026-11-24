@@ -1,0 +1,4 @@
+# The launch scripts must keep their line endings on every platform.
+search text eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
