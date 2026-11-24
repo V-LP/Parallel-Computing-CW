@@ -1,0 +1,3 @@
+# Used by bench/*.py. Install: pip install -r bench/requirements.txt
+matplotlib>=3.7   # plot.py (graphs of experiments 1-4)
+websockets>=12    # run_queries.py (required) and run_bench.py ws (optional)
