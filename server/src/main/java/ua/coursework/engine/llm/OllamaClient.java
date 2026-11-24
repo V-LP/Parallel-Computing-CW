@@ -30,7 +30,10 @@ public class OllamaClient implements TextGenerator {
   /** Downloading a model of about 1 GB can take a long time on a slow connection. */
   private static final Duration DEFAULT_PULL_TIMEOUT = Duration.ofMinutes(30);
 
-  private static final double TEMPERATURE = 0.2;
+  /** Greedy decoding: the same prompt gives the same expansion (needed for reproducible tests). */
+  private static final double TEMPERATURE = 0.0;
+  /** Default random seed sent to Ollama; override with OLLAMA_SEED. */
+  public static final int DEFAULT_SEED = 42;
   private static final int MAX_NEW_TOKENS = 120;
   /** How long Ollama keeps the model in memory after a request (saves the reload time). */
   private static final String KEEP_ALIVE = "30m";
@@ -39,6 +42,7 @@ public class OllamaClient implements TextGenerator {
   private final String model;
   private final Duration generateTimeout;
   private final Duration pullTimeout;
+  private final int seed;
   private final HttpClient http;
 
   public OllamaClient(String baseUrl) {
@@ -51,14 +55,22 @@ public class OllamaClient implements TextGenerator {
 
   public OllamaClient(
       String baseUrl, String model, Duration generateTimeout, Duration pullTimeout) {
+    this(baseUrl, model, generateTimeout, pullTimeout, DEFAULT_SEED);
+  }
+
+  public OllamaClient(
+      String baseUrl, String model, Duration generateTimeout, Duration pullTimeout, int seed) {
     this.baseUrl = stripTrailingSlash(baseUrl);
     this.model = model;
     this.generateTimeout = generateTimeout;
     this.pullTimeout = pullTimeout;
+    this.seed = seed;
     this.http = HttpClient.newBuilder().connectTimeout(AVAILABILITY_TIMEOUT).build();
   }
 
-  /** Reads OLLAMA_URL, OLLAMA_MODEL and OLLAMA_TIMEOUT_SECONDS from the environment. */
+  /**
+   * Reads OLLAMA_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS and OLLAMA_SEED from the environment.
+   */
   public static OllamaClient fromEnv() {
     String url = readEnv("OLLAMA_URL", DEFAULT_URL);
     String model = readEnv("OLLAMA_MODEL", DEFAULT_MODEL);
@@ -74,7 +86,23 @@ public class OllamaClient implements TextGenerator {
     } catch (NumberFormatException e) {
       LOG.warn("Invalid OLLAMA_TIMEOUT_SECONDS '{}', using {}", value, seconds);
     }
-    return new OllamaClient(url, model, Duration.ofSeconds(seconds), DEFAULT_PULL_TIMEOUT);
+    int seed = parseSeed(readEnv("OLLAMA_SEED", String.valueOf(DEFAULT_SEED)));
+    return new OllamaClient(url, model, Duration.ofSeconds(seconds), DEFAULT_PULL_TIMEOUT, seed);
+  }
+
+  /** Parses an OLLAMA_SEED value (any int); a bad value gives {@link #DEFAULT_SEED} and a WARN. */
+  static int parseSeed(String value) {
+    try {
+      return Integer.parseInt(value.trim());
+    } catch (NumberFormatException e) {
+      LOG.warn("Invalid OLLAMA_SEED '{}', using {}", value, DEFAULT_SEED);
+      return DEFAULT_SEED;
+    }
+  }
+
+  /** The seed sent with every generation request. */
+  public int seed() {
+    return seed;
   }
 
   public String model() {
@@ -101,8 +129,8 @@ public class OllamaClient implements TextGenerator {
   }
 
   /**
-   * Sends the prompt to POST /api/generate (no streaming, temperature 0.2, at most 120 new tokens,
-   * model kept loaded for 30 minutes) and returns the "response" field.
+   * Sends the prompt to POST /api/generate (no streaming, temperature 0, fixed seed, at most 120
+   * new tokens, model kept loaded for 30 minutes) and returns the "response" field.
    *
    * <p>The timeout covers the whole generation, because with {@code stream:false} Ollama answers
    * only when the text is complete.
@@ -119,6 +147,7 @@ public class OllamaClient implements TextGenerator {
     body.put("keep_alive", KEEP_ALIVE);
     ObjectNode options = body.putObject("options");
     options.put("temperature", TEMPERATURE);
+    options.put("seed", seed);
     options.put("num_predict", MAX_NEW_TOKENS);
 
     JsonNode answer = postJson("/api/generate", body, generateTimeout);
