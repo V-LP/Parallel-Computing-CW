@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
+import io.javalin.http.staticfiles.Location;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.coursework.engine.concurrent.ThreadPool;
@@ -24,6 +26,7 @@ public final class ApiServer {
   private static final Logger LOG = LoggerFactory.getLogger(ApiServer.class);
   private static final int MAX_THREADS = 1024;
   private static final String KEYWORD_MODE = "keyword";
+  private static final String WEB_DIRECTORY = "/web";
 
   /**
    * A WebSocket without traffic is closed after this time. Jetty's default is 30 s, which is
@@ -66,9 +69,23 @@ public final class ApiServer {
     this.searchPool = searchPool;
   }
 
-  /** Builds the Javalin app with all routes but does not start it. */
+  /**
+   * Builds the Javalin app with all routes but does not start it. The Web UI (the files in {@code
+   * src/main/resources/web}) is served from the classpath at {@code /}. A request that matches no
+   * file goes on to the routes, so {@code /api/*} and {@code /ws/search} are not hidden by it.
+   */
   public Javalin create() {
-    Javalin app = Javalin.create();
+    Javalin app =
+        Javalin.create(
+            config ->
+                config.staticFiles.add(
+                    files -> {
+                      files.hostedPath = "/";
+                      files.directory = WEB_DIRECTORY;
+                      files.location = Location.CLASSPATH;
+                      // the page is small: let the browser always check for a newer version
+                      files.headers = Map.of("Cache-Control", "no-cache");
+                    }));
     app.get("/api/health", ctx -> ctx.json(new HealthResponse("ok", ollama.isAvailable())));
     app.post("/api/index", this::handleIndex);
     app.post("/api/search", this::handleSearch);
