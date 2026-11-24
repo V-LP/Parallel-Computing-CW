@@ -26,7 +26,6 @@ class ChunkSearchTest {
   private static final Chunker CHUNKER = new Chunker(2_000, 200);
   private static final int LINES = 150;
 
-  /** Every line has the common word "shared" and a word that is unique in the whole book. */
   private static String line(int i) {
     return String.format("shared uniq%04d filler text for chunk testing here", i);
   }
@@ -46,7 +45,6 @@ class ChunkSearchTest {
     return new SearchService(manager, new Tokenizer(), dataDir);
   }
 
-  /** Index of the first line of the given chunk, found with an independent run of the chunker. */
   private static int firstLineOfChunk(List<String> lines, int chunk) {
     List<Integer> numbers = new ArrayList<>();
     Chunker.Splitter splitter =
@@ -92,8 +90,7 @@ class ChunkSearchTest {
     SearchService service = service();
     int first = firstLineOfChunk(lines, 2);
 
-    // "shared" is in every line, so the first match in chunk 2 is its first line, and the
-    // 200-character window would reach back into chunk 1 if the boundary were not respected
+    // window must not cross into chunk 1
     List<SearchHit> hits = service.search("shared", 50);
     SearchHit chunkTwo = hits.stream().filter(h -> h.docId().equals("book.txt#2")).findFirst().get();
 
@@ -110,7 +107,7 @@ class ChunkSearchTest {
   void theSnippetAtTheEndOfAChunkDoesNotReachIntoTheNextChunk() throws IOException {
     List<String> lines = writeBook();
     SearchService service = service();
-    int last = firstLineOfChunk(lines, 2) - 1; // the last line of chunk 1
+    int last = firstLineOfChunk(lines, 2) - 1;
 
     List<SearchHit> hits = service.search(String.format("uniq%04d", last), 10);
 

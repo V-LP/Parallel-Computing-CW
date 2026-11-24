@@ -24,10 +24,8 @@ class IndexerChunkTest {
   @TempDir Path dataDir;
 
   private final Tokenizer tokenizer = new Tokenizer();
-  /** About 2000 characters per chunk, so small test books give several chunks. */
   private final Chunker small = new Chunker(2_000, 200);
 
-  /** A line with a word that is unique in the whole book, like "uniq0042", plus common words. */
   private static String line(String prefix, int i) {
     return String.format("%s%04d filler text for chunk testing here", prefix, i);
   }
@@ -59,8 +57,6 @@ class IndexerChunkTest {
     }
     return paths;
   }
-
-  // ---------------------------------------------------------------- the same boundaries
 
   @Test
   void everyLineLandsInTheChunkThatTheChunkerAssignsToIt() throws IOException {
@@ -107,13 +103,13 @@ class IndexerChunkTest {
   void aChunkWithoutTermsIsSkippedButTheNumbersOfTheOthersStay() throws IOException {
     List<String> lines = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
-      lines.add("alphaword"); // chunk 1
+      lines.add("alphaword");
     }
     for (int i = 0; i < 10; i++) {
-      lines.add("the the t"); // chunk 2: only stop words and a one-letter word
+      lines.add("the the t");
     }
     for (int i = 0; i < 10; i++) {
-      lines.add("gammaword"); // chunk 3
+      lines.add("gammaword");
     }
     write("gap.txt", lines);
 
@@ -141,7 +137,6 @@ class IndexerChunkTest {
     for (int i = 0; i < index.documentCount(); i++) {
       total += index.documentLength(i);
     }
-    // every line has the same seven terms: uniqNNNN, filler, text, chunk, testing, here (for is a stop word)
     assertEquals(150L * tokenizer.tokenize(lines.get(0)).size(), total);
   }
 
@@ -168,9 +163,6 @@ class IndexerChunkTest {
     assertEquals(120L, index.getPostings("café").stream().mapToInt(Posting::termFrequency).sum());
   }
 
-  // ---------------------------------------------------------------- threads do not matter
-
-  /** Everything the index knows, with documents named by path (their numbers are random). */
   private static TreeMap<String, Long> fingerprint(ConcurrentInvertedIndex index, Set<String> terms) {
     TreeMap<String, Long> result = new TreeMap<>();
     result.put("#documents", (long) index.documentCount());
@@ -209,8 +201,6 @@ class IndexerChunkTest {
     assertEquals(one, four);
     assertEquals(one, eight);
   }
-
-  // ---------------------------------------------------------------- chunking off
 
   @Test
   void withoutChunkingDocumentIdsAreThePlainPathsAsBefore() throws IOException {

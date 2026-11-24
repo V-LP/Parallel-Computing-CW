@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Runs the test queries from bench/test_queries.json against a running server.
-
-Every query is executed twice (run 1 = "cold", run 2 = "warm"). One run is one REST call
-(POST /api/search, mode keyword, no query expansion) plus one WebSocket call (/ws/search, with
-query expansion). The results are written to docs/report/test-queries.csv and
-docs/report/test-queries.md. Nothing is invented: every value comes from a server answer.
-
-With --no-ollama the script checks the fallback: GET /api/health must already say
-"ollama": false (the script never stops anything itself), every expansion must be empty and the
-WebSocket search must give the same results as REST.
-
-Usage (PowerShell, server already running and indexed):
-    python bench/run_queries.py
-    python bench/run_queries.py --no-ollama
-"""
 
 import argparse
 import csv
@@ -26,10 +11,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-RUN_LABELS = ("холодний", "теплий")  # run 1 and run 2
+RUN_LABELS = ("холодний", "теплий")
 TOP_N = 5
-SNIPPET_CHARS = 80  # how much of the snippet is kept in the report
-TABLE_QUERY_CHARS = 60  # long queries are shortened in the Markdown table only
+SNIPPET_CHARS = 80
+TABLE_QUERY_CHARS = 60
 EXPECTED_STAGES = ["query_expansion", "keyword_search", "done"]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -38,14 +23,11 @@ DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "report"
 
 
 class BenchError(Exception):
-    """A readable error (network, HTTP, bad file); main() prints it without a traceback."""
+    """readable error for main"""
 
-
-# --------------------------------------------------------------------------- queries file
 
 
 def load_queries(path):
-    """Reads and validates the query list; returns a list of dicts with the four fields."""
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -69,14 +51,10 @@ def load_queries(path):
     return data
 
 
-# --------------------------------------------------------------------------- HTTP and WebSocket
-
-# Local server: never go through an HTTP proxy from the environment.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def http_json(method, url, payload, timeout):
-    """One HTTP call with a JSON body (UTF-8); returns the parsed JSON answer."""
     headers = {"Accept": "application/json"}
     data = None
     if payload is not None:
@@ -86,7 +64,7 @@ def http_json(method, url, payload, timeout):
     try:
         with _OPENER.open(request, timeout=timeout) as response:
             body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as error:  # before URLError: it is a subclass
+    except urllib.error.HTTPError as error:
         text = error.read().decode("utf-8", "replace").strip()
         raise BenchError(f"HTTP {error.code} від {url}: {text[:200]}") from None
     except (urllib.error.URLError, OSError) as error:
@@ -98,7 +76,6 @@ def http_json(method, url, payload, timeout):
 
 
 def ws_url_from(base_url):
-    """http://host:port -> ws://host:port/ws/search (https -> wss)."""
     base = base_url.rstrip("/")
     if base.startswith("https://"):
         base = "wss://" + base[len("https://"):]
@@ -108,7 +85,6 @@ def ws_url_from(base_url):
 
 
 def rest_search(base_url, query, timeout):
-    """One REST search. Never raises: a failure is stored in the 'error' field."""
     started = time.perf_counter()
     try:
         answer = http_json("POST", base_url.rstrip("/") + "/api/search",
@@ -125,15 +101,14 @@ def rest_search(base_url, query, timeout):
 
 
 def ws_search(base_url, query, timeout):
-    """One WebSocket search. Returns the parsed summary (see parse_ws_events); never raises."""
-    events = []  # (milliseconds since the query was sent, parsed message)
+    events = []
     failure = None
     try:
-        from websockets.sync.client import connect  # imported here: unit tests do not need it
+        from websockets.sync.client import connect
 
         options = {"open_timeout": timeout, "max_size": None}
         if "proxy" in inspect.signature(connect).parameters:
-            options["proxy"] = None  # websockets >= 15 would read HTTP(S)_PROXY otherwise
+            options["proxy"] = None  # newer websockets reads proxy env
         with connect(ws_url_from(base_url), **options) as socket:
             started = time.perf_counter()
             socket.send(json.dumps({"query": query}, ensure_ascii=False))
@@ -145,16 +120,13 @@ def ws_search(base_url, query, timeout):
                 events.append(((time.perf_counter() - started) * 1000, message))
                 if message.get("stage") == "done":
                     break
-    except Exception as error:  # noqa: BLE001 - one bad query must not stop the whole run
+    except Exception as error:  # noqa: BLE001
         failure = f"{type(error).__name__}: {error}"
     return parse_ws_events(events, failure)
 
 
-# --------------------------------------------------------------------------- pure helpers
-
 
 def short_snippet(text, limit=SNIPPET_CHARS):
-    """Beginning of a snippet on one line (whitespace collapsed), '...' if it was cut."""
     one_line = " ".join(str(text or "").split())
     if len(one_line) <= limit:
         return one_line
@@ -162,7 +134,6 @@ def short_snippet(text, limit=SNIPPET_CHARS):
 
 
 def normalize_hits(results, top=TOP_N):
-    """First `top` hits as {doc_id, score, snippet} with a shortened snippet."""
     hits = []
     for item in results[:top]:
         hits.append({
@@ -174,12 +145,6 @@ def normalize_hits(results, top=TOP_N):
 
 
 def parse_ws_events(events, failure=None):
-    """Turns [(ms, message), ...] into one summary dict.
-
-    expansion_ms and total_ms are measured by the client from sending the query to the arrival of
-    the query_expansion / done message. search_ms is the time_ms the server reports for the
-    keyword_search stage. Fields of a missing stage stay None.
-    """
     summary = {"stages": [], "expanded_terms": None, "expansion_ms": None, "search_ms": None,
                "total_ms": None, "results": [], "results_count": None, "error": failure}
     for elapsed, message in events:
@@ -202,7 +167,6 @@ def parse_ws_events(events, failure=None):
 
 
 def check_health(health, no_ollama):
-    """Returns an error text if the server is not in the state the chosen mode needs, else None."""
     if not isinstance(health, dict) or health.get("status") != "ok":
         return f"GET /api/health відповів несподівано: {health!r}"
     ollama = health.get("ollama")
@@ -216,16 +180,11 @@ def check_health(health, no_ollama):
 
 
 def fallback_issues(run):
-    """Fallback problems of one run (a list of texts; empty = fine).
-
-    Fallback means: no expansion terms, and WebSocket results equal to the REST results.
-    A WebSocket 'error' stage (for example a query longer than 1000 characters) is not judged here.
-    """
     ws, rest = run["ws"], run["rest"]
     issues = []
     if ws["error"] is not None and "keyword_search" not in ws["stages"]:
         if "error" in ws["stages"]:
-            return issues  # the server rejected the query on purpose
+            return issues
         issues.append(f"WebSocket не дав результатів: {ws['error']}")
         return issues
     if ws["expanded_terms"]:
@@ -243,7 +202,6 @@ def _ids_scores(results):
 
 
 def run_differences(first, second):
-    """What differs between the cold and the warm run (texts); empty list = same content."""
     notes = []
     for side, label in (("rest", "REST"), ("ws", "WS")):
         if first[side]["error"] != second[side]["error"]:
@@ -256,7 +214,6 @@ def run_differences(first, second):
 
 
 def collect(queries, rest_fn, ws_fn, progress=None):
-    """Runs every query twice (REST, then WebSocket) and returns the raw records."""
     records = []
     for number, item in enumerate(queries, 1):
         runs = []
@@ -270,8 +227,6 @@ def collect(queries, rest_fn, ws_fn, progress=None):
     return records
 
 
-# --------------------------------------------------------------------------- output: CSV
-
 
 def csv_header():
     columns = ["id", "category", "query", "purpose", "run", "run_label", "expanded_terms",
@@ -281,7 +236,6 @@ def csv_header():
         for rank in range(1, TOP_N + 1):
             columns += [f"{side}_top{rank}_doc_id", f"{side}_top{rank}_score",
                         f"{side}_top{rank}_snippet"]
-    # Filled in by hand by the student; the script leaves them empty.
     return columns + ["relevance_student", "comment"]
 
 
@@ -311,23 +265,19 @@ def _blank(value):
 
 
 def write_csv(path, records):
-    # utf-8-sig: Excel on Windows needs the BOM to show Cyrillic correctly.
+    # excel needs the bom
     with open(path, "w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(csv_header())
         writer.writerows(csv_rows(records))
 
 
-# --------------------------------------------------------------------------- output: Markdown
-
 
 def md_escape(text):
-    """Makes a text safe for a Markdown table cell."""
     return " ".join(str(text).split()).replace("|", "\\|")
 
 
 def display_query(query):
-    """Query for the Markdown table: shortened when long (the CSV keeps the full text)."""
     one_line = " ".join(query.split())
     if len(one_line) <= TABLE_QUERY_CHARS:
         return md_escape(one_line)
@@ -335,7 +285,6 @@ def display_query(query):
 
 
 def fmt_pair(first, second):
-    """'cold / warm' for two numbers; '-' for a missing one."""
     return " / ".join("-" if value is None else f"{value:g}" for value in (first, second))
 
 
@@ -456,8 +405,6 @@ def render_markdown(records, meta):
     return "\n".join(lines).rstrip() + "\n"
 
 
-# --------------------------------------------------------------------------- main
-
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Запуск тестових запитів (REST + WebSocket).")
@@ -478,7 +425,7 @@ def output_paths(out_dir, no_ollama):
 
 
 def main(argv=None):
-    for stream in (sys.stdout, sys.stderr):  # Windows consoles are not UTF-8 by default
+    for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args(argv)

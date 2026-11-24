@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import ua.coursework.cli.CliTestSupport.Result;
 
-/** The WebSocket search, against a fake WebSocket server that plays a script. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class CliWsTest {
 
@@ -46,8 +45,7 @@ class CliWsTest {
 
   @Test
   void theFirstStageIsPrintedBeforeTheSecondOneExists() throws Exception {
-    // The server waits 700 ms between the stages. A client that printed everything at the end
-    // would show both lines at the same moment.
+    // stages must print as they arrive
     try (FakeWsServer server =
         new FakeWsServer().send(EXPANSION).sleep(700).send(SEARCH).send(DONE).start()) {
       Result result = run("--url", server.url(), "white whale");

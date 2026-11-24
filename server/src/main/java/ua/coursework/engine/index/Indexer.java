@@ -17,16 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.coursework.engine.concurrent.ThreadPool;
 
-/**
- * Builds the index from a directory of {@code .txt} files in parallel.
- *
- * <p>One book is one task of the {@link ThreadPool}. A worker reads its book line by line. With
- * chunking on (see {@link Chunker}) every chunk is one document: as soon as a chunk is complete the
- * worker counts its terms in a local map, writes them to the shared index (one {@code addPosting}
- * per (term, chunk) pair, document id {@code path#N}) and clears the map. So a task never holds more
- * than one chunk in memory, and workers share nothing but the index. With chunking off one book is
- * one document with the id {@code path}.
- */
 public class Indexer {
 
   private static final Logger LOG = LoggerFactory.getLogger(Indexer.class);
@@ -37,7 +27,6 @@ public class Indexer {
   private final Chunker chunker;
   private volatile int booksIndexed;
 
-  /** An indexer without chunking: one file is one document. */
   public Indexer(ConcurrentInvertedIndex index, Tokenizer tokenizer) {
     this(index, tokenizer, Chunker.disabled());
   }
@@ -48,19 +37,10 @@ public class Indexer {
     this.chunker = Objects.requireNonNull(chunker, "chunker");
   }
 
-  /** Number of books (files) that gave at least one document in the last {@link #buildIndex}. */
   public int booksIndexed() {
     return booksIndexed;
   }
 
-  /**
-   * Indexes all {@code .txt} files under {@code dataDir} (subdirectories included) using {@code
-   * threads} worker threads and returns the number of indexed documents (chunks). A file that
-   * cannot be read is logged and skipped. A file or chunk without any terms is skipped too, because
-   * it carries no information.
-   *
-   * @throws IOException if the directory itself cannot be read
-   */
   public int buildIndex(Path dataDir, int threads) throws IOException {
     if (threads < 1) {
       throw new IllegalArgumentException("threads must be >= 1, got " + threads);
@@ -110,18 +90,15 @@ public class Indexer {
     return documents.get();
   }
 
-  /** Opens a file for reading. A separate method so that tests can make it fail. */
   BufferedReader openReader(Path file, Charset charset) throws IOException {
-    return Files.newBufferedReader(file, charset); // throws on malformed input, does not replace
+    return Files.newBufferedReader(file, charset);
   }
 
-  /** Indexes one book and returns the number of documents it gave. Never throws. */
   private int indexFile(Path dataDir, Path file) {
     String name = dataDir.relativize(file).toString().replace('\\', '/');
     BookState book = new BookState(name);
     try {
-      // The charset is chosen for the whole file first: a book that turns out to be invalid UTF-8
-      // in the middle could not be re-read, because its first chunks would already be indexed.
+      // charset is chosen before reading chunks
       Charset charset = BookEncoding.detect(file);
       try (BufferedReader reader = openReader(file, charset)) {
         chunker.forEachBodyLine(
@@ -147,10 +124,9 @@ public class Indexer {
     return book.documents;
   }
 
-  /** The state of one book while a worker reads it: the term counts of the current chunk. */
   private final class BookState {
     private final String name;
-    private final Map<String, int[]> counts = new HashMap<>(); // local to this task: no locking
+    private final Map<String, int[]> counts = new HashMap<>(); // local to this task
     private int chunk = 1;
     private int length;
     private int documents;
@@ -161,7 +137,7 @@ public class Indexer {
 
     void accept(int lineChunk, String line) {
       if (lineChunk != chunk) {
-        finishChunk(); // the previous chunk is complete: it becomes a document now
+        finishChunk();
         chunk = lineChunk;
       }
       tokenizer.tokenizeLine(
@@ -170,14 +146,13 @@ public class Indexer {
             length++;
             int[] counter = counts.get(term);
             if (counter == null) {
-              counts.put(term, new int[] {1}); // int[1] is a cheap mutable counter
+              counts.put(term, new int[] {1});
             } else {
               counter[0]++;
             }
           });
     }
 
-    /** Writes the current chunk to the index (if it has terms) and clears the local counts. */
     void finishChunk() {
       if (length > 0) {
         int docId = index.registerDocument(chunker.docId(name, chunk));

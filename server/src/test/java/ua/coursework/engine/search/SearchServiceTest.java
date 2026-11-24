@@ -41,7 +41,6 @@ class SearchServiceTest {
     return new SearchService(manager, new Tokenizer(), dataDir);
   }
 
-  /** The small corpus used by most tests. Query "whale harpoon" is the interesting one. */
   private void writeWhaleFiles() throws IOException {
     write("moby.txt", "whale whale whale harpoon ship sea");
     write("ahab.txt", "whale ship captain");
@@ -59,8 +58,6 @@ class SearchServiceTest {
   private static List<String> ids(List<SearchHit> hits) {
     return hits.stream().map(SearchHit::docId).toList();
   }
-
-  // ------------------------------------------------------------ ranking
 
   @Test
   void documentWithMostQueryTermsComesFirstAndOnlyMatchingDocumentsAreReturned()
@@ -81,8 +78,6 @@ class SearchServiceTest {
 
   @Test
   void whenEverythingElseIsEqualTheShorterDocumentWins() throws IOException {
-    // ahab.txt has "whale" in 3 words, fish.txt has "harpoon" in 2 words; both terms have the same
-    // df, so only the length normalisation separates them.
     SearchService service = whaleCorpus();
 
     assertEquals(
@@ -125,7 +120,6 @@ class SearchServiceTest {
     assertEquals(List.of("both.txt", "onlyred.txt"), ids(service.search("red blue", 10)));
   }
 
-  /** Text with exactly {@code total} words: the given words first, then filler words. */
   private static String padded(int total, String... words) {
     List<String> all = new ArrayList<>(List.of(words));
     for (int i = 0; all.size() < total; i++) {
@@ -136,9 +130,7 @@ class SearchServiceTest {
 
   @Test
   void coordinationFactorLetsMoreDifferentTermsBeatOneVeryFrequentTerm() throws IOException {
-    // Without the coord factor, "red" five times (B) would beat "red" + "blue" once each (A),
-    // because the plain TF-IDF sum is larger. With it, a document that has only half of the
-    // query terms is cut in half.
+    // coord must beat a larger plain sum
     write("a.txt", padded(10, "red", "blue"));
     write("b.txt", padded(10, "red", "red", "red", "red", "red"));
     for (int i = 1; i <= 3; i++) {
@@ -158,7 +150,7 @@ class SearchServiceTest {
 
   @Test
   void termInEveryDocumentStillCounts() throws IOException {
-    // With the plain idf = ln(N/df) this term would have idf 0 and nothing would be found.
+    // smoothed idf keeps common terms positive
     for (int i = 1; i <= 15; i++) {
       write(String.format("doc%02d.txt", i), "banana ".repeat(i) + "filler ".repeat(20 - i));
     }
@@ -211,8 +203,6 @@ class SearchServiceTest {
     assertEquals(List.of("a.txt", "b.txt"), ids(service.search("words", 2)));
   }
 
-  // ------------------------------------------------------------ query handling
-
   @Test
   void stopWordsInTheQueryAreIgnored() throws IOException {
     SearchService service = whaleCorpus();
@@ -243,7 +233,7 @@ class SearchServiceTest {
         new SearchService(new IndexManager(new Tokenizer()), new Tokenizer(), dataDir);
     assertEquals(List.of(), neverBuilt.search("whale", 10));
 
-    assertEquals(List.of(), indexAndCreateService().search("whale", 10)); // empty directory
+    assertEquals(List.of(), indexAndCreateService().search("whale", 10));
   }
 
   @Test
@@ -259,8 +249,6 @@ class SearchServiceTest {
     assertThrows(IllegalArgumentException.class, () -> new WeightedTerm("x", -1));
     assertThrows(IllegalArgumentException.class, () -> new WeightedTerm("x", Double.NaN));
   }
-
-  // ------------------------------------------------------------ weights
 
   @Test
   void termWeightsChangeTheRanking() throws IOException {
@@ -295,8 +283,6 @@ class SearchServiceTest {
         service.keywordSearchWeighted(
             List.of(new WeightedTerm("whale", 0.2), new WeightedTerm("WHALE", 1.0)), 10));
   }
-
-  // ------------------------------------------------------------ snippets
 
   private String snippetOf(SearchService service, String query, String docId) {
     return service.search(query, 10).stream()
@@ -337,7 +323,7 @@ class SearchServiceTest {
     }
     StringBuilder text = new StringBuilder();
     int column = 0;
-    for (String word : words) { // wrap at about 60 columns like a Gutenberg book
+    for (String word : words) {
       if (column > 60) {
         text.append('\n');
         column = 0;
@@ -421,8 +407,6 @@ class SearchServiceTest {
     assertEquals("un café au lait", snippetOf(service, "café", "latin1.txt"));
   }
 
-  // ------------------------------------------------------------ concurrency
-
   private static final List<String> QUERIES =
       List.of(
           "whale harpoon",
@@ -471,7 +455,7 @@ class SearchServiceTest {
   @Test
   void sixteenParallelSearchersGetTheSameResultsAsOneThread() throws Exception {
     writeWhaleFiles();
-    for (int i = 0; i < 300; i++) { // some volume, all without the query words
+    for (int i = 0; i < 300; i++) {
       write("filler/f" + i + ".txt", "filler" + i + " ship text number" + i);
     }
     SearchService big = indexAndCreateService();
@@ -506,7 +490,6 @@ class SearchServiceTest {
     SearchService service = new SearchService(manager, new Tokenizer(), dataDir);
     List<SearchHit> before = service.search("whale harpoon", 10);
 
-    // The directory grows, so the rebuilt index gives a different answer.
     write("big/best.txt", "whale whale whale whale harpoon harpoon harpoon");
     for (int i = 0; i < 2_000; i++) {
       write("big/f" + i + ".txt", "filler" + i + " ship words number" + i + " whale");

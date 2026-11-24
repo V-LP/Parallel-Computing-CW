@@ -1,0 +1,21 @@
+@startuml sequence-stats
+title Послідовність: статистика індексу (GET /api/stats)
+
+skinparam shadowing false
+autonumber
+
+actor "Клієнт\n(CLI / Web UI / оператор)" as Client
+participant ApiServer
+participant IndexManager
+participant IndexSnapshot
+
+Client -> ApiServer : GET /api/stats
+ApiServer -> IndexManager : current()
+IndexManager --> ApiServer : IndexSnapshot (читання volatile-поля)
+note right of IndexManager : індексація, що йде зараз, не блокує запит:\nповертається останній повністю побудований знімок
+ApiServer -> IndexSnapshot : documents(), buildTimeMs(), threadsUsed()
+ApiServer --> Client : 200 {"documents":N,"index_build_time_ms":T,"threads_used":K}
+
+note over ApiServer : до першої індексації всі значення дорівнюють 0
+
+@enduml

@@ -1,11 +1,9 @@
 @echo off
-rem Runs the console client: search.cmd "white whale"   (see README, section "CLI").
-rem Builds cli\target\search-cli.jar on the first run if it is missing.
 setlocal
 set "ROOT=%~dp0"
 set "JAR=%ROOT%cli\target\search-cli.jar"
 
-rem The client prints UTF-8: switch the console to code page 65001 for the run, restore it at the end.
+rem utf-8 code page for the run
 set "OLDCP="
 for /f "tokens=2 delims=:." %%a in ('chcp') do set "OLDCP=%%a"
 chcp 65001 >nul

@@ -21,7 +21,6 @@ import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
-/** Tests of the handler logic without a network: the "client" is a fake {@link Sink}. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class WsSearchHandlerTest {
 
@@ -30,12 +29,11 @@ class WsSearchHandlerTest {
   private ThreadPool pool;
   private WsSearchHandler handler;
 
-  /** Records every message and fails the test run if two threads send at the same time. */
   private static final class RecordingSink implements WsSearchHandler.Sink {
-    private final List<String> messages = new ArrayList<>(); // guarded by itself
-    private int inside; // threads inside send() now; guarded by messages
-    private int maxInside; // guarded by messages
-    private volatile int failAfter = Integer.MAX_VALUE; // send number that throws
+    private final List<String> messages = new ArrayList<>();
+    private int inside;
+    private int maxInside;
+    private volatile int failAfter = Integer.MAX_VALUE;
     private volatile boolean open = true;
 
     @Override
@@ -45,7 +43,7 @@ class WsSearchHandlerTest {
         maxInside = Math.max(maxInside, inside);
       }
       try {
-        Thread.sleep(2); // widens the window in which a second sender could get in
+        Thread.sleep(2); // widens the race window
         synchronized (messages) {
           if (messages.size() >= failAfter) {
             throw new IOException("connection reset");
@@ -108,7 +106,7 @@ class WsSearchHandlerTest {
     Object session = new Object();
     handler.onConnect(session, sink);
 
-    for (int i = 0; i < 5; i++) { // five queries sent back to back, no waiting for answers
+    for (int i = 0; i < 5; i++) {
       handler.onMessage(session, "{\"query\": \"harpoon\"}");
     }
     waitUntilIdle();
@@ -126,7 +124,7 @@ class WsSearchHandlerTest {
   @Test
   void aClientThatFailsInTheMiddleStopsThePipelineQuietly() throws Exception {
     RecordingSink sink = new RecordingSink();
-    sink.failAfter = 1; // the first message is delivered, the second one fails
+    sink.failAfter = 1;
     Object session = new Object();
     handler.onConnect(session, sink);
 
@@ -137,7 +135,6 @@ class WsSearchHandlerTest {
     assertEquals(1, sink.copy().size(), "nothing is sent after the failure");
     assertEquals(0, pool.queueSize());
 
-    // The pool is still alive and serves other connections.
     RecordingSink other = new RecordingSink();
     Object otherSession = new Object();
     handler.onConnect(otherSession, other);
@@ -160,7 +157,7 @@ class WsSearchHandlerTest {
 
     handler.onClose(session);
     assertEquals(0, handler.openConnections());
-    handler.onMessage(session, "{\"query\": \"harpoon\"}"); // must not throw
+    handler.onMessage(session, "{\"query\": \"harpoon\"}");
     assertFalse(sink.copy().size() > 0);
   }
 
@@ -168,7 +165,7 @@ class WsSearchHandlerTest {
   void tooManyWaitingQueriesAreRefusedWithAnError() throws Exception {
     Tokenizer tokenizer = new Tokenizer();
     IndexManager manager = new IndexManager(tokenizer);
-    // The model blocks until released, so the queue of one connection fills up.
+    // model blocks until released
     Object gate = new Object();
     boolean[] open = {false};
     QueryExpander expander =

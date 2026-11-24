@@ -1,10 +1,3 @@
-"""Pure helpers for the benchmarks: statistics, log parsing, CSV, summaries.
-
-Nothing here talks to Docker or to the server, so everything is covered by unit tests
-(test_benchlib.py). Every number produced here is computed from rows read from the CSV files
-that run_bench.py wrote; nothing is invented.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -15,10 +8,6 @@ import statistics
 import sys
 from datetime import datetime
 from pathlib import Path
-
-# ---------------------------------------------------------------------------------------------
-# CSV schemas (one row = one measurement)
-# ---------------------------------------------------------------------------------------------
 
 INDEX_THREADS_FIELDS = [
     "timestamp", "repeat", "position", "threads", "cold",
@@ -42,37 +31,30 @@ WS_FIELDS = [
     "expansion_ms", "expanded_terms", "search_ms", "total_ms", "results", "error",
 ]
 
-# The line that IndexManager writes after every build (see IndexManager.logSummary).
 INDEX_READY_RE = re.compile(
     r"Index ready: (?P<documents>\d+) documents \(chunks\) from (?P<books>\d+) books, "
     r"(?P<terms>\d+) terms, (?P<postings>\d+) postings, (?P<ms>\d+) ms, "
     r"(?P<threads>\d+) threads\."
     r"(?:\s*Heap used[^:]*:\s*(?P<heap_mb>\d+) MB of max (?P<heap_max_mb>\d+) MB)?"
 )
-# Lines that Main writes when the background model loader has finished.
 WARMUP_RE = re.compile(r"Ollama model warmed up|Model warm-up failed")
 
 
 class EmptyDataError(Exception):
-    """A CSV file is missing or has no data rows."""
+    """no data rows"""
 
 
 class ConsistencyError(Exception):
-    """Runs that must give the same index (same data) gave different counts."""
+    """runs gave different counts"""
 
 
 def setup_console() -> None:
-    """Print UTF-8 even when the Windows console uses another code page."""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
 
-
-# ---------------------------------------------------------------------------------------------
-# Log parsing
-# ---------------------------------------------------------------------------------------------
 
 
 def _match_to_dict(match: re.Match) -> dict:
@@ -93,7 +75,6 @@ def _match_to_dict(match: re.Match) -> dict:
 
 
 def parse_index_ready(text: str) -> dict | None:
-    """Parses the LAST 'Index ready:' line in the text; None if there is none."""
     matches = list(INDEX_READY_RE.finditer(text))
     return _match_to_dict(matches[-1]) if matches else None
 
@@ -103,7 +84,6 @@ def count_index_ready(text: str) -> int:
 
 
 def new_index_ready(count_before: int, text: str) -> dict | None:
-    """The newest 'Index ready:' line, but only if there are more of them than before."""
     matches = list(INDEX_READY_RE.finditer(text))
     if len(matches) <= count_before:
         return None
@@ -111,22 +91,13 @@ def new_index_ready(count_before: int, text: str) -> dict | None:
 
 
 def warmup_markers(text: str) -> list[str]:
-    """'warmed' or 'failed' for every model warm-up line, in log order."""
     return [
         "warmed" if "warmed up" in m.group(0) else "failed" for m in WARMUP_RE.finditer(text)
     ]
 
 
-# ---------------------------------------------------------------------------------------------
-# Statistics
-# ---------------------------------------------------------------------------------------------
-
 
 def percentile(values, p: float) -> float:
-    """Nearest-rank percentile: the smallest value with at least p% of the data at or below it.
-
-    p50 of 1..100 is 50, p95 is 95. Simple to explain; no interpolation.
-    """
     data = sorted(values)
     if not data:
         raise ValueError("percentile of an empty list")
@@ -137,7 +108,6 @@ def percentile(values, p: float) -> float:
 
 
 def spread(values) -> tuple[float, float, float]:
-    """(median, min, max)."""
     data = list(values)
     if not data:
         raise ValueError("spread of an empty list")
@@ -166,7 +136,6 @@ def throughput(ok_requests: int, wall_seconds: float) -> float:
 
 
 def speedup_table(medians: dict[int, float]) -> list[dict]:
-    """S(p) = T(1)/T(p) and E(p) = S(p)/p from median times. Needs the p=1 baseline."""
     if 1 not in medians:
         raise ValueError("the baseline (threads=1) is missing, speedup is undefined")
     base = medians[1]
@@ -177,14 +146,8 @@ def speedup_table(medians: dict[int, float]) -> list[dict]:
     return rows
 
 
-# ---------------------------------------------------------------------------------------------
-# Plans and parameters
-# ---------------------------------------------------------------------------------------------
-
 
 def make_order(values, repeats: int, rng: random.Random) -> list[list]:
-    """For every repeat a shuffled copy of values; two neighbouring repeats never get the same
-    order (when there are at least two values)."""
     values = list(values)
     plan: list[list] = []
     for _ in range(repeats):
@@ -195,13 +158,12 @@ def make_order(values, repeats: int, rng: random.Random) -> list[list]:
             rng.shuffle(order)
             tries += 1
         if plan and len(values) > 1 and order == plan[-1]:
-            order = order[1:] + order[:1]  # practically unreachable; keeps the guarantee
+            order = order[1:] + order[:1]
         plan.append(order)
     return plan
 
 
 def parse_int_list(text: str) -> list[int]:
-    """'1,2, 4' -> [1, 2, 4]; positive integers only, duplicates dropped, order kept."""
     result: list[int] = []
     for part in text.split(","):
         part = part.strip()
@@ -221,7 +183,6 @@ def parse_int_list(text: str) -> list[int]:
 
 
 def parse_datasets(text: str) -> list[tuple[str, str]]:
-    """'D184MB=data_extra/D184MB,D1.7GB=data' -> [('D184MB', 'data_extra/D184MB'), ...]."""
     result: list[tuple[str, str]] = []
     for part in text.split(","):
         part = part.strip()
@@ -250,14 +211,10 @@ def load_queries(path: Path) -> list[str]:
 
 
 def query_for(client: int, seq: int, total: int) -> int:
-    """Index of the query for request number seq of a client. Clients start at different places
-    of the list, so that they do not all send the same query at the same moment."""
     return (client * 7 + seq) % total
 
 
 class ConsistencyChecker:
-    """The index must not depend on the number of threads. The first run of a group is the
-    reference; any later run with other counts is a sign of a race (or of other data)."""
 
     FIELDS = ("documents", "terms", "postings")
 
@@ -279,10 +236,6 @@ class ConsistencyChecker:
             )
 
 
-# ---------------------------------------------------------------------------------------------
-# CSV
-# ---------------------------------------------------------------------------------------------
-
 
 def append_rows(path: Path, fields: list[str], rows: list[dict]) -> None:
     path = Path(path)
@@ -296,7 +249,6 @@ def append_rows(path: Path, fields: list[str], rows: list[dict]) -> None:
 
 
 def read_csv(path: Path) -> list[dict]:
-    """All data rows; EmptyDataError if the file is missing or has only a header."""
     path = Path(path)
     if not path.exists():
         raise EmptyDataError(f"Файл {path} не знайдено. Спочатку запустіть відповідний замір.")
@@ -308,7 +260,6 @@ def read_csv(path: Path) -> list[dict]:
 
 
 def backup_existing(path: Path) -> Path | None:
-    """Moves an old CSV aside (name ends with .tmp, so git ignores it); returns the new path."""
     path = Path(path)
     if not path.exists() or path.stat().st_size == 0:
         return None
@@ -322,10 +273,6 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-# ---------------------------------------------------------------------------------------------
-# Summaries computed from CSV rows (used by plot.py and summarize.py)
-# ---------------------------------------------------------------------------------------------
-
 
 def _group(rows: list[dict], key) -> dict:
     groups: dict = {}
@@ -335,8 +282,6 @@ def _group(rows: list[dict], key) -> dict:
 
 
 def _index_group_stats(group: list[dict]) -> dict:
-    """Statistics of runs of one configuration. Cold runs (first run on a cold file cache) are
-    kept apart; the statistics use warm runs, and all runs only if there are no warm ones."""
     warm = [r for r in group if r["cold"] != "1"]
     cold = [r for r in group if r["cold"] == "1"]
     used = warm or group
@@ -361,7 +306,6 @@ def _index_group_stats(group: list[dict]) -> dict:
 
 
 def index_thread_summary(rows: list[dict]) -> list[dict]:
-    """One entry per threads value, with speedup and efficiency if threads=1 is present."""
     entries = []
     for p, group in sorted(_group(rows, lambda r: int(r["threads"])).items()):
         entry = _index_group_stats(group)
@@ -374,14 +318,13 @@ def index_thread_summary(rows: list[dict]) -> list[dict]:
             continue
         p = e["threads"]
         e["speedup"] = base["median_ms"] / e["median_ms"]
-        e["speedup_lo"] = base["median_ms"] / e["max_ms"]  # slowest run -> smallest speedup
+        e["speedup_lo"] = base["median_ms"] / e["max_ms"]
         e["speedup_hi"] = base["median_ms"] / e["min_ms"]
         e["efficiency"] = e["speedup"] / p
     return entries
 
 
 def index_size_summary(rows: list[dict]) -> list[dict]:
-    """One entry per dataset, ordered by size."""
     entries = []
     for name, group in _group(rows, lambda r: r["dataset"]).items():
         entry = _index_group_stats(group)
@@ -395,7 +338,6 @@ def index_size_summary(rows: list[dict]) -> list[dict]:
 
 
 def search_summary(request_rows: list[dict], run_rows: list[dict]) -> list[dict]:
-    """One entry per number of clients: throughput over repeats, latency over all requests."""
     entries = []
     requests_by_clients = _group(request_rows, lambda r: int(r["clients"]))
     runs_by_clients = _group(run_rows, lambda r: int(r["clients"]))
@@ -427,7 +369,6 @@ def search_summary(request_rows: list[dict], run_rows: list[dict]) -> list[dict]
 
 
 def ws_summary(rows: list[dict]) -> list[dict]:
-    """One entry per number of clients. A 'fallback' is a finished query without expansion."""
     entries = []
     for clients, group in sorted(_group(rows, lambda r: int(r["clients"])).items()):
         good = [r for r in group if not r["error"]]
@@ -450,13 +391,8 @@ def ws_summary(rows: list[dict]) -> list[dict]:
     return entries
 
 
-# ---------------------------------------------------------------------------------------------
-# Markdown
-# ---------------------------------------------------------------------------------------------
-
 
 def fmt(value, digits: int = 1) -> str:
-    """Number to text; '-' for a missing value."""
     if value is None:
         return "-"
     if isinstance(value, int):

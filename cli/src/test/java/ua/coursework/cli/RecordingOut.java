@@ -6,12 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Captures what a program prints and remembers when each line was finished. */
 final class RecordingOut {
 
   private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-  private final List<String> lines = new ArrayList<>(); // guarded by this
-  private final List<Long> lineTimesNanos = new ArrayList<>(); // guarded by this
+  private final List<String> lines = new ArrayList<>();
+  private final List<Long> lineTimesNanos = new ArrayList<>();
   private final PrintStream stream;
 
   RecordingOut() {
@@ -48,7 +47,6 @@ final class RecordingOut {
     return new ArrayList<>(lines);
   }
 
-  /** Time (System.nanoTime) when the first line that contains the text was finished, or -1. */
   synchronized long timeOfLineContaining(String part) {
     for (int i = 0; i < lines.size(); i++) {
       if (lines.get(i).contains(part)) {

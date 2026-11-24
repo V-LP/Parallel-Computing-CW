@@ -1,11 +1,3 @@
-"""Unit tests for the helpers (no server, no Docker).
-
-Run from the repository root:
-    python -m unittest discover -s bench -p "test_*.py" -v
-
-All numbers below are made-up test inputs, not measurements.
-"""
-
 import random
 import tempfile
 import unittest
@@ -31,11 +23,10 @@ class PercentileTest(unittest.TestCase):
         self.assertEqual(1, benchlib.percentile(data, 0))
 
     def test_rounds_up_on_small_samples(self):
-        self.assertEqual(10, benchlib.percentile(range(1, 11), 95))  # ceil(9.5) = 10
+        self.assertEqual(10, benchlib.percentile(range(1, 11), 95))
         self.assertEqual(5, benchlib.percentile(range(1, 11), 50))
 
     def test_float_noise_does_not_change_the_rank(self):
-        # 16.1 * 1000 / 100 is 161.00000000000003 in floating point; the rank must still be 161
         self.assertEqual(161, benchlib.percentile(range(1, 1001), 16.1))
 
     def test_unsorted_input_and_single_value(self):
@@ -129,7 +120,7 @@ class ConsistencyTest(unittest.TestCase):
     def test_same_counts_pass(self):
         checker = benchlib.ConsistencyChecker()
         checker.check("all", self.COUNTS)
-        checker.check("all", dict(self.COUNTS, ms=999))  # time may differ
+        checker.check("all", dict(self.COUNTS, ms=999))
 
     def test_different_postings_raise(self):
         checker = benchlib.ConsistencyChecker()
@@ -142,7 +133,7 @@ class ConsistencyTest(unittest.TestCase):
     def test_groups_are_independent(self):
         checker = benchlib.ConsistencyChecker()
         checker.check("small", self.COUNTS)
-        checker.check("big", dict(self.COUNTS, documents=11))  # another dataset: fine
+        checker.check("big", dict(self.COUNTS, documents=11))
 
 
 class PlanTest(unittest.TestCase):
@@ -249,8 +240,8 @@ class IndexSummaryTest(unittest.TestCase):
         self.assertEqual(450, s[1]["median_ms"])
         self.assertAlmostEqual(2.0, s[1]["speedup"])
         self.assertAlmostEqual(1.0, s[1]["efficiency"])
-        self.assertAlmostEqual(900 / 500, s[1]["speedup_lo"])  # slowest run
-        self.assertAlmostEqual(900 / 400, s[1]["speedup_hi"])  # fastest run
+        self.assertAlmostEqual(900 / 500, s[1]["speedup_lo"])
+        self.assertAlmostEqual(900 / 400, s[1]["speedup_hi"])
 
     def test_cold_run_is_kept_apart(self):
         rows = [index_row(4, 5000, cold=1), index_row(4, 300), index_row(4, 340),
@@ -260,7 +251,7 @@ class IndexSummaryTest(unittest.TestCase):
         self.assertEqual(2, four["runs"])
         self.assertEqual(1, four["cold_runs"])
         self.assertEqual([5000.0], four["cold_times"])
-        self.assertEqual(320, four["median_ms"])  # the cold 5000 is not in the median
+        self.assertEqual(320, four["median_ms"])
         self.assertFalse(four["only_cold"])
 
     def test_only_cold_run_is_used_and_marked(self):
@@ -344,7 +335,7 @@ class SummarizeTest(unittest.TestCase):
                                  rows)
             text = summarize.build_summary(Path(tmp))
             self.assertIn("| 2 | 1 | 400 | 400 | 400 | 403 | 2.00 | 1.00 | 100 |", text)
-            self.assertIn("Немає даних", text)  # the other experiments have no CSV
+            self.assertIn("Немає даних", text)
             self.assertEqual(0, summarize.main(["--results-dir", tmp]))
             self.assertTrue((Path(tmp) / "summary.md").exists())
 

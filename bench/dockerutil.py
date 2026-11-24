@@ -1,9 +1,3 @@
-"""Talking to Docker Compose, to the server over HTTP, and collecting the environment.
-
-Only the standard library is used. Nothing here is covered by unit tests (it needs Docker);
-the pure logic lives in benchlib.py.
-"""
-
 from __future__ import annotations
 
 import http.client
@@ -24,16 +18,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class BenchError(Exception):
-    """A problem that stops the benchmark (Docker, server, bad answer)."""
+    """benchmark failure"""
 
-
-# ---------------------------------------------------------------------------------------------
-# Docker Compose
-# ---------------------------------------------------------------------------------------------
 
 
 class Compose:
-    """docker compose with the main file and the benchmark override."""
 
     def __init__(self, root: Path = REPO_ROOT) -> None:
         self.root = Path(root)
@@ -48,18 +37,15 @@ class Compose:
         ]
 
     def set_data_dir(self, path: Path | str) -> None:
-        """The directory mounted as /data when the server container is (re)created."""
         self.data_dir = Path(path).resolve()
 
     def _env(self) -> dict:
         env = dict(os.environ)
         if self.data_dir is not None:
-            # forward slashes also work in Compose on Windows (C:/Users/...)
             env["BENCH_DATA_DIR"] = self.data_dir.as_posix()
         return env
 
     def run(self, *args: str, timeout: float = 900, check: bool = True) -> str:
-        """Runs docker compose; returns stdout and stderr together (the JVM logs to stderr)."""
         command = self.base_command() + list(args)
         try:
             proc = subprocess.run(
@@ -87,7 +73,6 @@ class Compose:
         self.run("restart", "server")
 
     def recreate_server(self) -> None:
-        """Creates the container again, so that the current BENCH_DATA_DIR is mounted."""
         self.run("up", "-d", "--no-deps", "--force-recreate", "server")
 
     def start_ollama(self) -> None:
@@ -96,10 +81,6 @@ class Compose:
     def logs(self) -> str:
         return self.run("logs", "--no-color", "server", check=False)
 
-
-# ---------------------------------------------------------------------------------------------
-# HTTP
-# ---------------------------------------------------------------------------------------------
 
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # never use a proxy
 
@@ -123,7 +104,6 @@ def http_json(method: str, url: str, payload: dict | None = None, timeout: float
 
 
 def wait_health(url: str, timeout: float, poll: float = 0.5) -> dict:
-    """Waits until GET /api/health says status=ok; returns the answer."""
     deadline = time.monotonic() + timeout
     last_error = ""
     while time.monotonic() < deadline:
@@ -144,13 +124,8 @@ def connect_keepalive(url: str, timeout: float = 120) -> http.client.HTTPConnect
     return http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=timeout)
 
 
-# ---------------------------------------------------------------------------------------------
-# Environment
-# ---------------------------------------------------------------------------------------------
-
 
 def scan_dataset(path: Path) -> dict:
-    """Counts the .txt files (what the indexer reads) and their total size. 1 MB = 1024*1024."""
     files = 0
     total = 0
     for dirpath, _dirs, names in os.walk(path):
@@ -193,7 +168,7 @@ def _total_ram_bytes() -> int | None:
             for line in handle:
                 if line.startswith("MemTotal:"):
                     return int(line.split()[1]) * 1024
-    except Exception:  # best effort: the value is optional
+    except Exception:
         return None
     return None
 
@@ -224,7 +199,6 @@ def _docker_info() -> dict:
 
 
 def _chunk_size_kb(compose: Compose) -> str | None:
-    """CHUNK_SIZE_KB as the running server container sees it; None if it cannot be read."""
     try:
         out = compose.run("exec", "-T", "server", "printenv", "CHUNK_SIZE_KB", check=True,
                           timeout=60)
@@ -265,7 +239,6 @@ def collect_environment(compose: Compose, datasets: dict[str, Path]) -> dict:
 
 
 def write_environment(results_dir: Path, info: dict) -> Path:
-    """Writes environment.json; datasets from earlier runs are kept (merged by name)."""
     path = Path(results_dir) / "environment.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     merged = dict(info)

@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import ua.coursework.cli.CliTestSupport.Result;
 
-/** The REST commands and the error handling, against a fake server (no real server needed). */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class CliRestTest {
 
@@ -23,8 +22,6 @@ class CliRestTest {
   private static final String RESULTS =
       "{\"results\":[{\"doc_id\":\"a/moby.txt#3\",\"score\":1.0,\"snippet\":\"Call me Ishmael.\"},"
           + "{\"doc_id\":\"b.txt\",\"score\":0.4321,\"snippet\":\"second\"}],\"time_ms\":12}";
-
-  // ---- search --rest ----
 
   @Test
   void restSearchPrintsNumberedResultsTimeAndDone() throws Exception {
@@ -111,8 +108,6 @@ class CliRestTest {
     assertTrue(result.err().contains("Порожній запит"));
   }
 
-  // ---- health, stats, index ----
-
   @Test
   void healthIsPrintedReadably() throws Exception {
     try (FakeHttpServer server =
@@ -196,8 +191,6 @@ class CliRestTest {
     }
   }
 
-  // ---- errors ----
-
   @Test
   void http400ShowsTheMessageOfTheServer() throws Exception {
     String body = "{\"status\":\"error\",\"message\":\"threads must be between 1 and 1024\"}";
@@ -254,7 +247,7 @@ class CliRestTest {
   void unavailableServerGivesAClearMessageAndExitCode1ForEveryCommand() throws Exception {
     String url = deadUrl();
     String[][] commands = {
-      {"--rest", "q"}, {"--health"}, {"--stats"}, {"--index"}, {"white whale"} // the last: WebSocket
+      {"--rest", "q"}, {"--health"}, {"--stats"}, {"--index"}, {"white whale"}
     };
     for (String[] command : commands) {
       String[] args = new String[command.length + 2];
@@ -291,8 +284,6 @@ class CliRestTest {
       assertTrue(seconds < 3, "must stop after about 1 s, took " + seconds);
     }
   }
-
-  // ---- usage errors and help ----
 
   @Test
   void emptyQueryGivesAHintAndExitCode2WithoutCallingTheServer() throws Exception {
@@ -339,8 +330,6 @@ class CliRestTest {
     assertEquals("", result.err());
   }
 
-  // ---- server address ----
-
   @Test
   void searchUrlFromTheEnvironmentIsUsedAndTheOptionWins() throws Exception {
     String health = "{\"status\":\"ok\",\"ollama\":true}";
@@ -361,8 +350,6 @@ class CliRestTest {
 
   @Test
   void withoutUrlOrEnvironmentTheDefaultIsLocalhost8080() throws Exception {
-    // Nothing is guaranteed to listen on 8080 in a test, so only the message is checked when it
-    // does not: it must name the default address.
     Result result = run("--health", "--timeout", "2");
     if (result.code() == 1) {
       assertTrue(result.err().contains("http://localhost:8080"), result.err());

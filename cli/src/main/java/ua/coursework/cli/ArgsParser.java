@@ -4,20 +4,12 @@ import java.util.ArrayList;
 import java.util.List;
 import ua.coursework.cli.CliOptions.Command;
 
-/** Turns the command line into {@link CliOptions}. Knows nothing about the network. */
 public final class ArgsParser {
 
   private static final int MAX_TIMEOUT_SECONDS = 24 * 60 * 60;
 
   private ArgsParser() {}
 
-  /**
-   * Parses the arguments. Words that are not options are joined with a space into the query, so
-   * {@code search white whale} and {@code search "white whale"} are the same.
-   *
-   * @throws UsageException for an unknown option, a missing or bad value, two commands at once, or
-   *     an empty query
-   */
   public static CliOptions parse(String[] args) throws UsageException {
     for (String arg : args) {
       if (arg.equals("--help") || arg.equals("-h")) {
@@ -40,14 +32,14 @@ public final class ArgsParser {
         words.add(arg);
         continue;
       }
-      if (arg.equals("--")) { // everything after "--" is the query, even words that start with "--"
+      if (arg.equals("--")) { // everything after -- is the query
         optionsEnded = true;
         continue;
       }
       String name = arg;
       String inlineValue = null;
       int eq = arg.indexOf('=');
-      if (eq > 0) { // --url=http://host:8080
+      if (eq > 0) {
         name = arg.substring(0, eq);
         inlineValue = arg.substring(eq + 1);
       }
@@ -133,7 +125,6 @@ public final class ArgsParser {
         return number;
       }
     } catch (NumberFormatException e) {
-      // falls through to the error below
     }
     throw new UsageException(option + ": потрібне додатне ціле число, а не \"" + value + "\"");
   }

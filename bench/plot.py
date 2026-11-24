@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""Plots from the CSV files in bench/results/ (nothing is drawn from numbers typed by hand).
-
-    python bench/plot.py            # every plot whose CSV exists; stops if there is no data at all
-    python bench/plot.py threads    # index_time.png, index_speedup.png, index_efficiency.png
-    python bench/plot.py size       # index_size.png
-    python bench/plot.py search     # search_throughput.png, search_latency.png
-    python bench/plot.py ws         # ws_stages.png
-
-If the CSV of the chosen experiment is missing or empty, the script stops with a message.
-"""
 
 from __future__ import annotations
 
@@ -27,7 +17,7 @@ def load_plt():
     try:
         import matplotlib
 
-        matplotlib.use("Agg")  # no window: we only write PNG files
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.ticker import NullLocator, ScalarFormatter
     except ImportError:
@@ -36,7 +26,6 @@ def load_plt():
 
 
 def docker_cores(results_dir: Path) -> int | None:
-    """The number of CPUs that Docker gives to containers (from environment.json), if known."""
     path = results_dir / "environment.json"
     if not path.exists():
         return None
@@ -69,7 +58,6 @@ def plot_threads(rows: list[dict], results_dir: Path, tools) -> None:
     cores = docker_cores(results_dir)
     base = next((e for e in entries if e["threads"] == 1), None)
 
-    # 1. time
     fig, ax = plt.subplots(figsize=(7, 4.6))
     ax.plot(ps, [e["median_ms"] for e in entries], "o-", label="медіана")
     ax.fill_between(ps, [e["min_ms"] for e in entries], [e["max_ms"] for e in entries],
@@ -98,7 +86,6 @@ def plot_threads(rows: list[dict], results_dir: Path, tools) -> None:
               "(index_speedup.png, index_efficiency.png пропущено).")
         return
 
-    # 2. speedup
     fig, ax = plt.subplots(figsize=(7, 4.6))
     ax.plot(ps, [e["speedup"] for e in entries], "o-", label="S(p) за медіаною")
     ax.fill_between(ps, [e["speedup_lo"] for e in entries], [e["speedup_hi"] for e in entries],
@@ -115,7 +102,6 @@ def plot_threads(rows: list[dict], results_dir: Path, tools) -> None:
     _save(fig, results_dir, "index_speedup.png")
     plt.close(fig)
 
-    # 3. efficiency
     fig, ax = plt.subplots(figsize=(7, 4.6))
     ax.plot(ps, [e["efficiency"] for e in entries], "o-", label="E(p) = S(p) / p")
     ax.axhline(1.0, linestyle="--", color="gray", label="ідеально: E = 1")

@@ -13,10 +13,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 
-/**
- * A minimal WebSocket server (RFC 6455) on plain sockets, only for tests: it accepts connections,
- * reads one text message from the client and then plays a script (send text, sleep, close, hang).
- */
 final class FakeWsServer implements AutoCloseable {
 
   private interface Step {
@@ -25,9 +21,9 @@ final class FakeWsServer implements AutoCloseable {
 
   private final ServerSocket serverSocket;
   private final List<Step> script = new ArrayList<>();
-  private final List<Socket> sockets = new ArrayList<>(); // guarded by itself
-  private final List<String> received = new ArrayList<>(); // guarded by itself
-  private volatile int handshakeStatus = 101; // 101 = accept the upgrade, else answer with this status
+  private final List<Socket> sockets = new ArrayList<>();
+  private final List<String> received = new ArrayList<>();
+  private volatile int handshakeStatus = 101;
   private final Thread acceptor;
 
   FakeWsServer() throws IOException {
@@ -46,19 +42,16 @@ final class FakeWsServer implements AutoCloseable {
     return this;
   }
 
-  /** Sends a close frame with code 1000. */
   FakeWsServer closeConnection() {
     script.add(out -> writeFrame(out, 0x8, new byte[] {0x03, (byte) 0xE8}));
     return this;
   }
 
-  /** Keeps the connection open without sending anything more. */
   FakeWsServer hang() {
     script.add(out -> Thread.sleep(60_000));
     return this;
   }
 
-  /** Refuse the upgrade with this HTTP status (for example 404). */
   FakeWsServer refuseWith(int status) {
     handshakeStatus = status;
     return this;
@@ -73,7 +66,6 @@ final class FakeWsServer implements AutoCloseable {
     return "http://127.0.0.1:" + serverSocket.getLocalPort();
   }
 
-  /** The text messages received from clients, in order. */
   List<String> received() {
     synchronized (received) {
       return new ArrayList<>(received);
@@ -91,7 +83,7 @@ final class FakeWsServer implements AutoCloseable {
         handler.setDaemon(true);
         handler.start();
       } catch (IOException e) {
-        return; // the server was closed
+        return;
       }
     }
   }
@@ -130,17 +122,13 @@ final class FakeWsServer implements AutoCloseable {
       for (Step step : script) {
         step.run(out);
       }
-      // Wait until the client closes, so the connection is not cut early.
       while (in.read() >= 0) {
-        // ignore the rest
       }
     } catch (Exception e) {
-      // the client went away: fine for a test server
     } finally {
       try {
         socket.close();
       } catch (IOException e) {
-        // ignore
       }
     }
   }
@@ -162,7 +150,6 @@ final class FakeWsServer implements AutoCloseable {
     throw new IOException("no Sec-WebSocket-Key");
   }
 
-  /** Reads one (masked) client frame; returns its text, or null for a non-text frame. */
   private static String readTextFrame(DataInputStream in) throws IOException {
     int first = in.readUnsignedByte();
     int second = in.readUnsignedByte();
@@ -202,14 +189,12 @@ final class FakeWsServer implements AutoCloseable {
     try {
       serverSocket.close();
     } catch (IOException e) {
-      // ignore
     }
     synchronized (sockets) {
       for (Socket socket : sockets) {
         try {
           socket.close();
         } catch (IOException e) {
-          // ignore
         }
       }
     }

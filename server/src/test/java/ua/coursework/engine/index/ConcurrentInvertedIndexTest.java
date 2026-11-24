@@ -15,19 +15,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/** Every test has a timeout, so a deadlock in the index fails the test instead of hanging it. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class ConcurrentInvertedIndexTest {
 
-  /** Body of one test thread; receives its own index (0..threads-1). */
   private interface ThreadBody {
     void run(int threadId) throws Exception;
   }
 
-  /**
-   * Starts {@code threads} threads, releases them at the same moment with a latch, waits for all of
-   * them and fails if any thread threw an exception.
-   */
   private static void runConcurrently(int threads, ThreadBody body) throws Exception {
     CountDownLatch ready = new CountDownLatch(threads);
     CountDownLatch start = new CountDownLatch(1);
@@ -58,8 +52,6 @@ class ConcurrentInvertedIndexTest {
       throw new AssertionError("A test thread failed: " + failure.get(), failure.get());
     }
   }
-
-  // ------------------------------------------------------------ single thread
 
   @Test
   void singleThreadedAddAndGet() {
@@ -95,7 +87,7 @@ class ConcurrentInvertedIndexTest {
     ConcurrentInvertedIndex index = new ConcurrentInvertedIndex();
     assertEquals(0, index.documentCount());
 
-    int docs = 5_000; // more than the initial registry capacity, so the arrays must grow
+    int docs = 5_000;
     for (int i = 0; i < docs; i++) {
       assertEquals(i, index.registerDocument("book-" + i + ".txt"));
     }
@@ -136,11 +128,9 @@ class ConcurrentInvertedIndexTest {
     assertEquals(64, new ConcurrentInvertedIndex().segmentCount());
   }
 
-  // ------------------------------------------------------------ hash table internals
-
   @Test
   void tableGrowsAndKeepsAllTerms() {
-    ConcurrentInvertedIndex index = new ConcurrentInvertedIndex(1); // one table, so it must resize
+    ConcurrentInvertedIndex index = new ConcurrentInvertedIndex(1);
     int initialBuckets = index.bucketCount();
     int terms = 10_000;
 
@@ -158,7 +148,7 @@ class ConcurrentInvertedIndexTest {
 
   @Test
   void termsWithEqualHashCodesStayApart() {
-    // These four strings have the same hashCode, so they collide in the same bucket chain.
+    // these strings share a hashcode
     String[] colliding = {"AaAa", "AaBB", "BBAa", "BBBB"};
     for (String s : colliding) {
       assertEquals("AaAa".hashCode(), s.hashCode());
@@ -207,8 +197,6 @@ class ConcurrentInvertedIndexTest {
     }
   }
 
-  // ------------------------------------------------------------ concurrency
-
   private static int frequencyOf(int i) {
     return 1 + i % 7;
   }
@@ -231,7 +219,6 @@ class ConcurrentInvertedIndexTest {
     assertEquals(distinctTerms, index.termCount());
     assertEquals((long) threads * perThread, index.postingCount());
 
-    // Each term was added (perThread / distinctTerms) times by each of the threads.
     int occurrencesPerThread = perThread / distinctTerms;
     for (int k = 0; k < distinctTerms; k++) {
       long expectedFrequencySum = 0;
@@ -258,7 +245,7 @@ class ConcurrentInvertedIndexTest {
     int threads = 8;
     int perThread = 2_000;
     ConcurrentInvertedIndex index = new ConcurrentInvertedIndex();
-    int[][] ids = new int[threads][perThread]; // each thread writes only its own row
+    int[][] ids = new int[threads][perThread];
 
     runConcurrently(
         threads,
@@ -287,7 +274,7 @@ class ConcurrentInvertedIndexTest {
     int writers = 4;
     int readers = 4;
     int perWriter = 20_000;
-    ConcurrentInvertedIndex index = new ConcurrentInvertedIndex(8); // few segments = more contention
+    ConcurrentInvertedIndex index = new ConcurrentInvertedIndex(8); // fewer segments, more contention
     AtomicInteger writersLeft = new AtomicInteger(writers);
     AtomicLong readerSnapshots = new AtomicLong();
 
@@ -346,7 +333,7 @@ class ConcurrentInvertedIndexTest {
     runConcurrently(
         threads,
         t -> {
-          long state = 0x9E3779B97F4A7C15L * (t + 1); // simple per-thread pseudo-random numbers
+          long state = 0x9E3779B97F4A7C15L * (t + 1);
           for (int i = 0; i < opsPerThread; i++) {
             state ^= state << 13;
             state ^= state >>> 7;

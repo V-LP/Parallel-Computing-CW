@@ -23,8 +23,6 @@ class OllamaClientTest {
     return new OllamaClient(fake.url(), MODEL, generateTimeout, Duration.ofSeconds(10));
   }
 
-  // ---------------------------------------------------------------- isAvailable
-
   @Test
   void isAvailableReturnsFalseWithoutThrowingWhenUnreachable() {
     assertFalse(new OllamaClient("http://localhost:1").isAvailable());
@@ -41,8 +39,6 @@ class OllamaClientTest {
       assertTrue(client(fake, Duration.ofSeconds(5)).isAvailable());
     }
   }
-
-  // ---------------------------------------------------------------- generate
 
   @Test
   void generateReturnsTheResponseField() throws Exception {
@@ -170,8 +166,6 @@ class OllamaClientTest {
     assertThrows(OllamaException.class, () -> new OllamaClient("not a url").generate("hello"));
   }
 
-  // ---------------------------------------------------------------- ensureModelAvailable
-
   @Test
   void ensureModelAvailableDoesNotDownloadWhenTheModelIsPresent() throws Exception {
     try (FakeOllama fake =
@@ -254,8 +248,6 @@ class OllamaClientTest {
         new OllamaClient("http://localhost:1", MODEL, Duration.ofSeconds(2), Duration.ofSeconds(2));
     assertThrows(OllamaException.class, client::ensureModelAvailable);
   }
-
-  // ---------------------------------------------------------------- retries
 
   @Test
   void retriesUntilOllamaStartsAnswering() throws Exception {

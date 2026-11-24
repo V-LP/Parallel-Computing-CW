@@ -1,20 +1,12 @@
-/*
- * Web UI of the search engine. No libraries, no build step.
- *
- * Security rule: everything that comes from the server (book names, snippets, error messages,
- * expansion terms) is put into the page only with textContent or createTextNode, never by building
- * HTML strings. Snippets are texts of books, so they may contain markup such as a script tag. A
- * test (WebUiTest) fails if this file starts to parse HTML.
- */
+// textContent only, never html strings
 (function () {
   'use strict';
 
-  var SEARCH_TIMEOUT_MS = 120000; // the whole search, from the click to the "done" message
+  var SEARCH_TIMEOUT_MS = 120000;
   var HEALTH_INTERVAL_MS = 10000;
   var INDEX_TIMEOUT_MS = 30 * 60 * 1000;
   var MAX_QUERY_LENGTH = 1000;
 
-  // Very common English words are not highlighted: the server ignores them in the query too.
   var STOP_WORDS = new Set(['the', 'and', 'of', 'to', 'in', 'is', 'it', 'for', 'on', 'with', 'as', 'by',
     'at', 'an', 'or', 'be', 'are', 'was', 'were', 'from', 'that', 'this', 'but', 'not', 'his', 'her']);
 
@@ -26,8 +18,6 @@
     if (text !== undefined && text !== null) { node.textContent = text; }
     return node;
   }
-
-  // ---------------------------------------------------------------- formatting
 
   function formatDuration(ms) {
     if (!isFinite(ms) || ms < 0) { return '—'; }
@@ -46,7 +36,6 @@
     return Number(n).toLocaleString('uk-UA');
   }
 
-  /** "gutenberg/Moby_Dick.txt#3" -> title "Moby Dick", part 3, folder "gutenberg". */
   function describeDoc(docId) {
     var path = String(docId), part = null;
     var m = /^(.*)#(\d+)$/.exec(path);
@@ -60,19 +49,12 @@
     return { title: title, part: part, folder: segments.join('/') };
   }
 
-  // ---------------------------------------------------------------- highlighting
-
-  /** Splits a text into words (letters and digits, any language). */
   function words(text) {
     return (String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
   }
 
   function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-  /**
-   * Puts the snippet into the element as text, wrapping the query words in <mark>.
-   * classOf maps a lower-case word to "hl-orig" or "hl-exp".
-   */
   function renderSnippet(target, text, classOf) {
     var terms = Object.keys(classOf).sort(function (a, b) { return b.length - a.length; });
     if (terms.length === 0) { target.appendChild(document.createTextNode(text)); return; }
@@ -87,8 +69,6 @@
     }
     if (last < text.length) { target.appendChild(document.createTextNode(text.slice(last))); }
   }
-
-  // ---------------------------------------------------------------- pipeline view
 
   var STEP_IDS = { expand: 'step-expand', search: 'step-search', done: 'step-done' };
   var stepNodes = {};
@@ -123,9 +103,7 @@
     });
   }
 
-  // ---------------------------------------------------------------- search run
-
-  var run = null; // the search that is shown now; null when nothing is running
+  var run = null;
 
   var form = $('search-form');
   var input = $('q');
@@ -165,7 +143,6 @@
     resultsEmpty.textContent = message || '';
   }
 
-  /** Stops the timers and the socket of a run. Its messages are ignored from now on. */
   function dispose(r) {
     if (!r) { return; }
     r.active = false;
@@ -186,10 +163,9 @@
     stepNodes[key].timer.textContent = '· ' + formatDuration(performance.now() - r.startedAt);
   }
 
-  /** The run cannot go on: mark the current step as failed and offer to retry. */
   function failRun(r, message, canRetry) {
     if (!r.active) { return; }
-    if (r.failed) { // the server already reported an error: just stop waiting for "done"
+    if (r.failed) {
       dispose(r);
       if (run === r) { run = null; }
       return;
@@ -253,7 +229,7 @@
       socket.send(JSON.stringify({ query: text }));
     };
     socket.onmessage = function (event) { onMessage(r, event.data); };
-    socket.onerror = function () { /* onclose follows and reports the problem */ };
+    socket.onerror = function () { /* onclose reports it */ };
     socket.onclose = function () {
       if (!r.active || r.finished) { return; }
       failRun(r, r.opened
@@ -346,8 +322,6 @@
     if (run === finished) { run = null; }
   }
 
-  // ---------------------------------------------------------------- results view
-
   function renderResults(r, results, timeMs) {
     resultsList.textContent = '';
     if (results.length === 0) {
@@ -366,7 +340,7 @@
     resultsSummary.textContent = 'Знайдено ' + results.length + ' ' + plural(results.length, 'результат', 'результати', 'результатів')
       + (isFinite(timeMs) ? ' за ' + timeMs + ' мс' : '');
 
-    var classOf = Object.assign(Object.create(null), r.terms.exp, r.terms.orig); // a word typed by the user wins
+    var classOf = Object.assign(Object.create(null), r.terms.exp, r.terms.orig); // typed words win
     results.forEach(function (item, index) {
       resultsList.appendChild(buildResult(item, index + 1, classOf));
     });
@@ -394,7 +368,7 @@
     scoreBox.setAttribute('aria-label', 'Релевантність ' + score.toFixed(3).replace('.', ',') + ' з 1');
     var track = el('span', 'score-track');
     var fill = el('span', 'score-fill');
-    fill.style.width = (score * 100).toFixed(1) + '%'; // CSSOM, allowed by the Content-Security-Policy
+    fill.style.width = (score * 100).toFixed(1) + '%'; // cssom is allowed by csp
     track.appendChild(fill);
     scoreBox.appendChild(track);
     scoreBox.appendChild(el('span', 'score-num', score.toFixed(3).replace('.', ',')));
@@ -411,8 +385,6 @@
     li.appendChild(snippet);
     return li;
   }
-
-  // ---------------------------------------------------------------- health and stats
 
   var healthDot = $('health-dot');
   var healthText = $('health-text');
@@ -471,8 +443,6 @@
     refreshHealth();
     refreshStats();
   }
-
-  // ---------------------------------------------------------------- index builder
 
   var indexForm = $('index-form');
   var indexBtn = $('index-btn');
@@ -538,8 +508,6 @@
       refreshHealth();
     });
   }
-
-  // ---------------------------------------------------------------- start
 
   form.addEventListener('submit', function (event) {
     event.preventDefault();

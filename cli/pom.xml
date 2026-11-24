@@ -30,7 +30,6 @@
   <build>
     <finalName>search-cli</finalName>
     <plugins>
-      <!-- Fat-jar: target/search-cli.jar, run with "java -jar search-cli.jar". -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

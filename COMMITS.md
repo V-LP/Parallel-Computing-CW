@@ -7,7 +7,6 @@
 ```
 
 - `scope` необов'язковий: `server`, `cli`, `index`, `pool`, `llm`, `api`, `web`, `docker`, `bench`.
-- Опис англійською, у наказовому способі, без крапки в кінці, до ~70 символів.
 - Один коміт = одна логічна зміна (атомарний коміт); код і тест до нього краще разом.
 
 ## Типи
@@ -22,5 +21,3 @@
 | `refactor` | зміна коду без зміни поведінки | `refactor(search): extract ranking` |
 | `build` | Maven, Dockerfile, docker-compose | `build: add Javalin and Jackson` |
 
-Зламані контракти позначайте `!`: `feat(api)!: rename field` (контракт API фіксований, тож це
-малоймовірно).

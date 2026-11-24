@@ -12,10 +12,6 @@ import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * HTTP client for Ollama: availability check, text generation and model download. Every failure of
- * {@link #generate} and {@link #ensureModelAvailable} is reported as an {@link OllamaException}.
- */
 public class OllamaClient implements TextGenerator {
 
   private static final Logger LOG = LoggerFactory.getLogger(OllamaClient.class);
@@ -27,15 +23,11 @@ public class OllamaClient implements TextGenerator {
 
   private static final Duration AVAILABILITY_TIMEOUT = Duration.ofSeconds(2);
   private static final Duration TAGS_TIMEOUT = Duration.ofSeconds(10);
-  /** Downloading a model of about 1 GB can take a long time on a slow connection. */
   private static final Duration DEFAULT_PULL_TIMEOUT = Duration.ofMinutes(30);
 
-  /** Greedy decoding: the same prompt gives the same expansion (needed for reproducible tests). */
   private static final double TEMPERATURE = 0.0;
-  /** Default random seed sent to Ollama; override with OLLAMA_SEED. */
   public static final int DEFAULT_SEED = 42;
   private static final int MAX_NEW_TOKENS = 120;
-  /** How long Ollama keeps the model in memory after a request (saves the reload time). */
   private static final String KEEP_ALIVE = "30m";
 
   private final String baseUrl;
@@ -68,9 +60,6 @@ public class OllamaClient implements TextGenerator {
     this.http = HttpClient.newBuilder().connectTimeout(AVAILABILITY_TIMEOUT).build();
   }
 
-  /**
-   * Reads OLLAMA_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS and OLLAMA_SEED from the environment.
-   */
   public static OllamaClient fromEnv() {
     String url = readEnv("OLLAMA_URL", DEFAULT_URL);
     String model = readEnv("OLLAMA_MODEL", DEFAULT_MODEL);
@@ -90,7 +79,6 @@ public class OllamaClient implements TextGenerator {
     return new OllamaClient(url, model, Duration.ofSeconds(seconds), DEFAULT_PULL_TIMEOUT, seed);
   }
 
-  /** Parses an OLLAMA_SEED value (any int); a bad value gives {@link #DEFAULT_SEED} and a WARN. */
   static int parseSeed(String value) {
     try {
       return Integer.parseInt(value.trim());
@@ -100,7 +88,6 @@ public class OllamaClient implements TextGenerator {
     }
   }
 
-  /** The seed sent with every generation request. */
   public int seed() {
     return seed;
   }
@@ -109,7 +96,6 @@ public class OllamaClient implements TextGenerator {
     return model;
   }
 
-  /** Returns true if Ollama answers GET /api/tags with HTTP 200 within 2 seconds. Never throws. */
   public boolean isAvailable() {
     try {
       HttpRequest request =
@@ -128,16 +114,6 @@ public class OllamaClient implements TextGenerator {
     }
   }
 
-  /**
-   * Sends the prompt to POST /api/generate (no streaming, temperature 0, fixed seed, at most 120
-   * new tokens, model kept loaded for 30 minutes) and returns the "response" field.
-   *
-   * <p>The timeout covers the whole generation, because with {@code stream:false} Ollama answers
-   * only when the text is complete.
-   *
-   * @throws OllamaException on network error, timeout, HTTP status other than 200 or an answer
-   *     that is not JSON with a text "response"
-   */
   @Override
   public String generate(String prompt) throws OllamaException {
     ObjectNode body = MAPPER.createObjectNode();
@@ -158,12 +134,6 @@ public class OllamaClient implements TextGenerator {
     return text.asText();
   }
 
-  /**
-   * Makes sure the configured model is present: checks GET /api/tags and, if the model is missing,
-   * downloads it with POST /api/pull (no streaming). Returns normally when the model is available.
-   *
-   * @throws OllamaException if Ollama cannot be reached or the download fails
-   */
   public void ensureModelAvailable() throws OllamaException {
     if (hasModel()) {
       LOG.info("Ollama model {} is already available", model);
@@ -173,7 +143,7 @@ public class OllamaClient implements TextGenerator {
     long start = System.nanoTime();
     ObjectNode body = MAPPER.createObjectNode();
     body.put("model", model);
-    body.put("name", model); // older Ollama versions read "name", newer ones read "model"
+    body.put("name", model); // old versions read name, new ones read model
     body.put("stream", false);
     JsonNode answer = postJson("/api/pull", body, pullTimeout);
     JsonNode error = answer.get("error");
@@ -183,12 +153,6 @@ public class OllamaClient implements TextGenerator {
     LOG.info("Ollama model {} downloaded in {} s", model, (System.nanoTime() - start) / 1_000_000_000L);
   }
 
-  /**
-   * Calls {@link #ensureModelAvailable()} up to {@code attempts} times, sleeping {@code pauseMillis}
-   * between failed attempts (Ollama may still be starting). Logs every step and never throws.
-   *
-   * @return true if the model is ready, false if all attempts failed
-   */
   public boolean ensureModelAvailableWithRetries(int attempts, long pauseMillis) {
     for (int attempt = 1; attempt <= attempts; attempt++) {
       try {
@@ -225,7 +189,7 @@ public class OllamaClient implements TextGenerator {
     if (models == null || !models.isArray()) {
       return false;
     }
-    // "qwen2.5:1.5b" must match exactly; a name without a tag means ":latest".
+    // name without a tag means latest
     String wanted = model.contains(":") ? model : model + ":latest";
     for (JsonNode entry : models) {
       for (String field : new String[] {"name", "model"}) {
@@ -260,7 +224,7 @@ public class OllamaClient implements TextGenerator {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new OllamaException("Interrupted while waiting for Ollama", e);
-    } catch (IOException e) { // includes connection errors and HttpTimeoutException
+    } catch (IOException e) {
       throw new OllamaException(
           "Ollama request " + request.uri().getPath() + " failed: " + e, e);
     }

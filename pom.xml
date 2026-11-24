@@ -80,11 +80,6 @@
     </pluginManagement>
 
     <plugins>
-      <!--
-        Code style: Google Java Style.
-        Run manually: "mvn spotless:apply" (fix) or "mvn spotless:check" (verify).
-        Not bound to a build phase, so "mvn compile" never fails because of formatting.
-      -->
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>

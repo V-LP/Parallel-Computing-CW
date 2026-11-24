@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""Benchmarks of the search server (stage 12).
-
-    python bench/run_bench.py threads   # indexing time vs number of threads
-    python bench/run_bench.py size      # indexing time vs dataset size
-    python bench/run_bench.py search    # throughput and latency vs number of clients (REST)
-    python bench/run_bench.py ws        # optional: WebSocket pipeline (needs `websockets`)
-    python bench/run_bench.py env       # only write bench/results/environment.json
-    python bench/run_bench.py all       # everything above
-    (add --dry-run to any of them to print the plan and exit)
-
-Every measurement is appended to a CSV file in bench/results/ right after it is made. Plots and
-tables are built from those files only (plot.py, summarize.py).
-"""
 
 from __future__ import annotations
 
@@ -55,14 +42,8 @@ class Context:
     keep_old: bool
 
 
-# ---------------------------------------------------------------------------------------------
-# Steps shared by the experiments
-# ---------------------------------------------------------------------------------------------
-
 
 def wait_model_warmup(ctx: Context, markers_before: int, timeout: float) -> str | None:
-    """Waits for the server's background model loader to finish, so that it does not use the
-    CPU during a measurement. Returns 'warmed', 'failed', 'timeout', or None if skipped."""
     if timeout <= 0:
         return None
     deadline = time.monotonic() + timeout
@@ -75,9 +56,8 @@ def wait_model_warmup(ctx: Context, markers_before: int, timeout: float) -> str 
 
 
 def start_server(ctx: Context, recreate: bool, settle: float | None = None) -> str | None:
-    """Restarts (or re-creates) the server container and waits until it is ready."""
     if recreate:
-        markers_before = 0  # a new container has an empty log
+        markers_before = 0
         ctx.compose.recreate_server()
     else:
         markers_before = len(benchlib.warmup_markers(ctx.compose.logs()))
@@ -87,7 +67,6 @@ def start_server(ctx: Context, recreate: bool, settle: float | None = None) -> s
 
 
 def build_index(ctx: Context, threads: int) -> dict:
-    """POST /api/index and the matching 'Index ready' line from the container log."""
     logs_before = ctx.compose.logs()
     count_before = benchlib.count_index_ready(logs_before)
     started = time.perf_counter()
@@ -102,7 +81,7 @@ def build_index(ctx: Context, threads: int) -> dict:
         raise BenchError(f"Несподівана відповідь /api/index: {answer}")
 
     ready = None
-    for _ in range(40):  # the log may arrive a moment later than the HTTP answer
+    for _ in range(40):  # log can lag behind the http answer
         ready = benchlib.new_index_ready(count_before, ctx.compose.logs())
         if ready:
             break
@@ -147,7 +126,7 @@ def save_environment(ctx: Context, datasets: dict[str, Path]) -> None:
         info = dockerutil.collect_environment(ctx.compose, datasets)
         path = dockerutil.write_environment(ctx.results_dir, info)
         say(f"Середовище записано: {path}")
-    except Exception as e:  # never hide the real error of the experiment
+    except Exception as e:
         say(f"Увага: environment.json не записано: {e}")
 
 
@@ -162,10 +141,6 @@ def require_dataset(name: str, path: Path) -> None:
     if not any(f.lower().endswith(".txt") for _, _, files in os.walk(path) for f in files):
         raise BenchError(f"У {path} немає жодного .txt файлу ({name}).")
 
-
-# ---------------------------------------------------------------------------------------------
-# Experiment 1: indexing vs threads
-# ---------------------------------------------------------------------------------------------
 
 
 def plan_threads(ctx: Context, args) -> list[list[int]]:
@@ -220,10 +195,6 @@ def cmd_threads(ctx: Context, args) -> int:
     say(f"Готово: {csv_path}")
     return 0
 
-
-# ---------------------------------------------------------------------------------------------
-# Experiment 2: indexing vs dataset size
-# ---------------------------------------------------------------------------------------------
 
 
 def cmd_size(ctx: Context, args) -> int:
@@ -285,19 +256,14 @@ def cmd_size(ctx: Context, args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------------------------
-# Experiment 3: search vs number of clients (REST, closed loop)
-# ---------------------------------------------------------------------------------------------
-
 
 def search_request(conn, queries: list[str], index: int) -> tuple[float, str, int]:
-    """One POST /api/search on an open keep-alive connection: (latency_ms, status, results)."""
     body = json.dumps({"query": queries[index], "mode": "keyword"}).encode("utf-8")
     started = time.perf_counter()
     conn.request("POST", "/api/search", body=body,
                  headers={"Content-Type": "application/json"})
     response = conn.getresponse()
-    data = response.read()  # the whole body must be read to reuse the connection
+    data = response.read()
     latency_ms = (time.perf_counter() - started) * 1000
     results = -1
     if response.status == 200:
@@ -310,7 +276,6 @@ def search_request(conn, queries: list[str], index: int) -> tuple[float, str, in
 
 def search_round(url: str, queries: list[str], clients: int, per_client: int,
                  repeat: int) -> tuple[list[dict], dict]:
-    """M clients, each sends per_client requests one after another (closed loop)."""
     per_thread: list[list[dict]] = [[] for _ in range(clients)]
     barrier = threading.Barrier(clients + 1)
 
@@ -319,7 +284,7 @@ def search_round(url: str, queries: list[str], clients: int, per_client: int,
         try:
             conn.connect()
         except OSError:
-            pass  # reported as an error of the first request
+            pass
         barrier.wait()
         for seq in range(per_client):
             index = benchlib.query_for(client, seq, len(queries))
@@ -339,7 +304,7 @@ def search_round(url: str, queries: list[str], clients: int, per_client: int,
     threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(clients)]
     for t in threads:
         t.start()
-    barrier.wait()  # all connections are open: the measurement starts now
+    barrier.wait()
     started = time.perf_counter()
     for t in threads:
         t.join()
@@ -356,7 +321,6 @@ def search_round(url: str, queries: list[str], clients: int, per_client: int,
 
 
 def warmup_pass(url: str, queries: list[str]) -> int:
-    """Every query once, on one connection; not recorded. Returns the number of failures."""
     conn = dockerutil.connect_keepalive(url)
     failures = 0
     try:
@@ -426,13 +390,8 @@ def cmd_search(ctx: Context, args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------------------------
-# Experiment 4 (optional): WebSocket pipeline
-# ---------------------------------------------------------------------------------------------
-
 
 async def ws_round(ws_url: str, queries: list[str], timeout: float) -> list[dict]:
-    """len(queries) clients connect, then all send their query at the same moment."""
     import websockets
 
     connections = []
@@ -453,17 +412,17 @@ async def ws_round(ws_url: str, queries: list[str], timeout: float) -> list[dict
                     stage = message.get("stage")
                     data = message.get("data") or {}
                     if stage == "query_expansion":
-                        record["expansion_ms"] = elapsed  # send -> this message arrives
+                        record["expansion_ms"] = elapsed
                         record["expanded_terms"] = len(data.get("expanded_terms", []))
                     elif stage == "keyword_search":
-                        record["search_ms"] = data.get("time_ms", "")  # measured by the server
+                        record["search_ms"] = data.get("time_ms", "")
                         record["results"] = len(data.get("results", []))
                     elif stage == "error":
                         record["error"] = str(data.get("message", data))
                     elif stage == "done":
                         record["total_ms"] = elapsed
                         break
-            except Exception as e:  # timeout, closed connection, bad JSON
+            except Exception as e:
                 record["error"] = record["error"] or repr(e)
             return record
 
@@ -538,10 +497,6 @@ def cmd_ws(ctx: Context, args) -> int:
     say(f"Готово: {csv_path}")
     return 0
 
-
-# ---------------------------------------------------------------------------------------------
-# Command line
-# ---------------------------------------------------------------------------------------------
 
 
 def cmd_env(ctx: Context, args) -> int:

@@ -9,15 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * A tiny fake Ollama for tests, built on the JDK HttpServer (no real Ollama needed). It handles
- * requests one at a time, which is enough for these tests.
- */
 final class FakeOllama implements AutoCloseable {
 
-  /** What the fake answers for one path. */
   interface Reply {
-    /** Writes the answer; may sleep to imitate a slow model. */
     void handle(String requestBody, Responder responder) throws Exception;
   }
 
@@ -26,13 +20,12 @@ final class FakeOllama implements AutoCloseable {
   }
 
   private final HttpServer server;
-  private final List<String> requests = new ArrayList<>(); // guarded by itself
+  private final List<String> requests = new ArrayList<>();
 
   FakeOllama() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
   }
 
-  /** Answers every request on the path with a fixed status and body. */
   FakeOllama on(String path, int status, String body) {
     return on(path, (request, responder) -> responder.send(status, body));
   }
@@ -48,7 +41,6 @@ final class FakeOllama implements AutoCloseable {
           try {
             reply.handle(body, (status, text) -> respond(exchange, status, text));
           } catch (IOException e) {
-            // client went away (for example after its timeout): nothing to do
           } catch (Exception e) {
             respond(exchange, 500, "{\"error\":\"fake failure\"}");
           }
@@ -65,14 +57,12 @@ final class FakeOllama implements AutoCloseable {
     return "http://127.0.0.1:" + server.getAddress().getPort();
   }
 
-  /** Number of requests received for the path. */
   int count(String path) {
     synchronized (requests) {
       return (int) requests.stream().filter(r -> r.startsWith(path + " ")).count();
     }
   }
 
-  /** The body of the last request for the path, or null. */
   String lastBody(String path) {
     synchronized (requests) {
       String found = null;

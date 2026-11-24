@@ -18,7 +18,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/** Every test has a timeout, so a bug in the pool fails the test instead of hanging the build. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class ThreadPoolTest {
 
@@ -59,7 +58,7 @@ class ThreadPoolTest {
     CountDownLatch firstStarted = new CountDownLatch(1);
     AtomicInteger done = new AtomicInteger();
 
-    // The only worker is blocked by the first task, the other 50 wait in the queue.
+    // first task blocks the only worker, others queue
     pool.submit(
         () -> {
           firstStarted.countDown();
@@ -91,7 +90,7 @@ class ThreadPoolTest {
 
   @Test
   void exceptionInTaskDoesNotStopPool() throws InterruptedException {
-    ThreadPool pool = new ThreadPool(1); // one worker: if it died, the next task would never run
+    ThreadPool pool = new ThreadPool(1);
     AtomicInteger done = new AtomicInteger();
 
     pool.submit(
@@ -116,7 +115,6 @@ class ThreadPoolTest {
     pool.shutdown();
 
     assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
-    // A second call, and a second shutdown(), are harmless.
     pool.shutdown();
     assertTrue(pool.awaitTermination(1, TimeUnit.SECONDS));
   }
@@ -136,8 +134,8 @@ class ThreadPoolTest {
   void workersAreNamedWorkerN() throws Exception {
     int threads = 3;
     ThreadPool pool = new ThreadPool(threads);
-    List<String> names = new ArrayList<>(); // guarded by itself
-    // The barrier makes every task wait for the others, so each runs on its own worker.
+    List<String> names = new ArrayList<>();
+    // barrier forces one task per worker
     CyclicBarrier barrier = new CyclicBarrier(threads);
 
     for (int i = 0; i < threads; i++) {
@@ -203,7 +201,7 @@ class ThreadPoolTest {
   @Test
   void stressManyTinyTasksFromManyProducers() throws InterruptedException {
     int producers = 4;
-    int perProducer = 25_000; // 100 000 tasks in total
+    int perProducer = 25_000;
     ThreadPool pool = new ThreadPool(8);
     AtomicInteger counter = new AtomicInteger();
 

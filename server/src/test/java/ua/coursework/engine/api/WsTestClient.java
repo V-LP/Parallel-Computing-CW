@@ -8,10 +8,9 @@ import java.util.List;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
-/** A tiny WebSocket client for tests, built on the JDK {@link WebSocket}. */
 final class WsTestClient implements AutoCloseable {
 
-  private final Object lock = new Object(); // guards received and closed
+  private final Object lock = new Object();
   private final List<String> received = new ArrayList<>();
   private boolean closed;
   private WebSocket socket;
@@ -30,7 +29,6 @@ final class WsTestClient implements AutoCloseable {
     socket.sendText(text, true).get(10, TimeUnit.SECONDS);
   }
 
-  /** Next message, or null if none arrives within the time. */
   String next(long timeoutMillis) throws InterruptedException {
     long deadline = System.nanoTime() + timeoutMillis * 1_000_000;
     synchronized (lock) {
@@ -45,7 +43,6 @@ final class WsTestClient implements AutoCloseable {
     }
   }
 
-  /** Reads messages up to and including the one with stage "done". Fails on a timeout. */
   List<String> readUntilDone(long timeoutMillis) throws InterruptedException {
     List<String> messages = new ArrayList<>();
     while (true) {
@@ -66,7 +63,6 @@ final class WsTestClient implements AutoCloseable {
     }
   }
 
-  /** Drops the connection without the closing handshake, like a crashed client. */
   void abort() {
     socket.abort();
   }

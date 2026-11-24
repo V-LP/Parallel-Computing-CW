@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Runs the console client: ./search "white whale"   (see README, section "CLI").
-# Builds cli/target/search-cli.jar on the first run if it is missing.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 JAR="$ROOT/cli/target/search-cli.jar"

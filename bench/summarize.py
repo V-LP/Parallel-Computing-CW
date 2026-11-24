@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Builds bench/results/summary.md (tables of medians, speedup, efficiency) from the CSV files.
-
-    python bench/summarize.py
-
-A section whose CSV is missing or empty is replaced by a note; if there is no data at all, the
-script stops with a message. All numbers are computed from the CSV files.
-"""
 
 from __future__ import annotations
 
@@ -112,7 +105,6 @@ def ws_section(rows: list[dict]) -> str:
 
 
 def build_summary(results_dir: Path) -> str | None:
-    """The whole markdown text, or None if there is no measurement data at all."""
     sections = []
     found = 0
 

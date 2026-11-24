@@ -1,0 +1,143 @@
+@startuml class-api
+title Діаграма класів: пакет api
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam nodesep 25
+skinparam ranksep 35
+set separator none
+hide empty members
+
+package "api" {
+  class ApiServer {
+    +ApiServer(ollama, indexManager, searchService, dataDir)
+    +ApiServer(ollama, indexManager, searchService, dataDir, searchPool)
+    +create(): Javalin
+    -addWebSocket(app)
+  }
+  note right of ApiServer
+    Маршрути: /api/health, /api/index,
+    /api/search, /api/stats, WS /ws/search
+    (WS лише з searchPool; 4-арг. конструктор = тільки REST)
+    Web UI: статичні файли з classpath /web
+  end note
+
+  class WsSearchHandler {
+    +MAX_PENDING: int = 16
+    +MAX_QUERY_LENGTH: int = 1000
+    -connections: HashMap<Object, Connection>  (доступ під synchronized)
+    +onConnect(session: Object, sink: Sink)
+    +onMessage(session: Object, text: String)
+    +onClose(session: Object)
+    +openConnections(): int
+  }
+  interface "WsSearchHandler.Sink" as Sink {
+    +send(text: String)
+    +isOpen(): boolean
+  }
+  class "WsSearchHandler.Connection" as Connection <<inner>> {
+    -sendLock: Object
+    -queueLock: Object
+    -pending: ArrayDeque<String>
+    -draining: boolean
+    -closed: boolean (volatile)
+    ~enqueue(text: String)
+    -drain()
+    -runPipeline(text: String)
+    -send(messages: WsMessage...): boolean
+  }
+  note bottom of Connection
+    Черга повідомлень на з'єднання, один воркер (drain)
+    обробляє їх по черзі. Усі записи в сесію під sendLock.
+    Розрив клієнта: send повертає false, пайплайн тихо зупиняється.
+  end note
+
+  class HealthResponse <<record>> {
+    status: String
+    ollama: boolean
+  }
+  class IndexRequest <<record>> {
+    threads: Integer
+  }
+  class IndexResponse <<record>> {
+    status: String
+    documentsIndexed: int
+    timeMs: long
+  }
+  class SearchRequest <<record>> {
+    query: String
+    mode: String  (keyword)
+  }
+  class SearchResult <<record>> {
+    docId: String
+    score: double
+    snippet: String
+  }
+  class SearchResponse <<record>> {
+    results: List<SearchResult>
+    timeMs: long
+  }
+  class StatsResponse <<record>> {
+    documents: int
+    indexBuildTimeMs: long
+    threadsUsed: int
+  }
+  class ErrorResponse <<record>> {
+    status: String
+    message: String
+  }
+  class WsMessage <<record>> {
+    stage: String
+    data: Object  (null для done, поле не пишеться)
+    +queryExpansion(original, expandedTerms): WsMessage
+    +keywordSearch(results, timeMs): WsMessage
+    +error(message): WsMessage
+    +done(): WsMessage
+  }
+  class "WsMessage.Expansion" as WsExpansion <<record>> {
+    original: String
+    expandedTerms: List<String>
+  }
+  class "WsMessage.Search" as WsMessageSearch <<record>> {
+    results: List<SearchResult>
+    timeMs: long
+  }
+  class "WsMessage.Failure" as WsFailure <<record>> {
+    message: String
+  }
+}
+
+package "використовуються з інших пакетів" {
+  class SearchService <<search>>
+  class IndexManager <<index>>
+  class OllamaClient <<llm>>
+  class ThreadPool <<concurrent>>
+  class IndexingInProgressException <<index>>
+}
+
+ApiServer --> SearchService
+ApiServer --> IndexManager
+ApiServer --> OllamaClient : health
+ApiServer --> WsSearchHandler : /ws/search
+ApiServer --> ThreadPool : searchPool (SEARCH_THREADS)
+ApiServer ..> HealthResponse
+ApiServer ..> IndexRequest
+ApiServer ..> IndexResponse
+ApiServer ..> SearchRequest
+ApiServer ..> SearchResponse
+ApiServer ..> StatsResponse
+ApiServer ..> ErrorResponse
+ApiServer ..> IndexingInProgressException : 409
+WsSearchHandler --> ThreadPool : submit(drain)
+WsSearchHandler --> SearchService : expandQuery, searchExpanded
+WsSearchHandler *-- "N" Connection
+WsSearchHandler +-- Sink
+Connection --> Sink : send під sendLock
+WsSearchHandler ..> WsMessage
+WsMessage ..> WsExpansion
+WsMessage ..> WsMessageSearch
+WsMessage ..> WsFailure
+WsMessageSearch o-- SearchResult
+SearchResponse "1" o-- "*" SearchResult
+
+@enduml

@@ -1,9 +1,3 @@
-"""Unit tests of the helper functions of run_queries.py. No server and no network are needed.
-
-Run from the repository root:
-    python -m unittest discover -s bench -p "test_*.py" -v
-"""
-
 import csv
 import io
 import json
