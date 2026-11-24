@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <!-- The page loads nothing from other sites and has no inline scripts or styles. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'none'; form-action 'none'">
+  <title>Пошук по бібліотеці</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b6b6b'/%3E%3Ccircle cx='14' cy='14' r='6' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath d='M19 19l7 7' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#q">Перейти до пошуку</a>
+
+  <header class="top">
+    <div class="brand">
+      <p class="eyebrow">Курсова робота · паралельні обчислення</p>
+      <h1>Пошук по бібліотеці</h1>
+      <p class="tagline">Індекс у пам'яті, власний пул потоків і розширення запиту локальною мовною моделлю.</p>
+    </div>
+    <div class="health" id="health" role="status" aria-live="polite">
+      <span class="dot" id="health-dot" data-state="unknown" aria-hidden="true"></span>
+      <span id="health-text">Перевірка сервера…</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main>
+      <section class="panel search-panel" aria-labelledby="search-title">
+        <h2 id="search-title" class="sr-only">Пошук</h2>
+        <form id="search-form" novalidate>
+          <label for="q" class="sr-only">Пошуковий запит</label>
+          <div class="field">
+            <input id="q" name="q" type="search" maxlength="1000" autocomplete="off" spellcheck="false"
+                   placeholder="Наприклад: white whale harpoon" aria-describedby="q-hint">
+            <button type="submit" id="search-btn" class="primary">Шукати</button>
+          </div>
+          <p id="q-hint" class="hint" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="pipeline-title">
+        <h2 id="pipeline-title">Етапи пошуку</h2>
+        <ol class="pipeline" id="pipeline">
+          <li class="step" id="step-expand" data-state="pending">
+            <span class="step-icon" aria-hidden="true"></span>
+            <div class="step-body">
+              <h3 class="step-title">Розширення запиту (Ollama)</h3>
+              <p class="step-line"><span class="step-status" aria-live="polite">Очікує</span> <span class="step-timer" aria-hidden="true"></span></p>
+              <div class="step-detail"></div>
+            </div>
+          </li>
+          <li class="step" id="step-search" data-state="pending">
+            <span class="step-icon" aria-hidden="true"></span>
+            <div class="step-body">
+              <h3 class="step-title">Пошук за ключовими словами</h3>
+              <p class="step-line"><span class="step-status" aria-live="polite">Очікує</span> <span class="step-timer" aria-hidden="true"></span></p>
+              <div class="step-detail"></div>
+            </div>
+          </li>
+          <li class="step" id="step-done" data-state="pending">
+            <span class="step-icon" aria-hidden="true"></span>
+            <div class="step-body">
+              <h3 class="step-title">Готово</h3>
+              <p class="step-line"><span class="step-status" aria-live="polite">Очікує</span> <span class="step-timer" aria-hidden="true"></span></p>
+              <div class="step-detail"></div>
+            </div>
+          </li>
+        </ol>
+        <div class="banner" id="banner" role="alert" hidden>
+          <p id="banner-text"></p>
+          <button type="button" id="retry-btn" hidden>Повторити</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="results-title">
+        <div class="results-head">
+          <h2 id="results-title">Результати</h2>
+          <p id="results-summary" class="summary" role="status" aria-live="polite"></p>
+        </div>
+        <p id="results-empty" class="empty">Введіть запит і натисніть «Шукати».</p>
+        <p class="legend" id="legend" hidden>
+          <span><mark class="hl-orig">слово</mark> слово з вашого запиту</span>
+          <span><mark class="hl-exp">слово</mark> слово від мовної моделі</span>
+        </p>
+        <ol class="results" id="results"></ol>
+      </section>
+    </main>
+
+    <aside class="system" id="system" aria-labelledby="system-title">
+      <section class="panel">
+        <h2 id="system-title">Система</h2>
+        <dl class="stats" id="stats">
+          <div><dt>Документів</dt><dd id="stat-docs">—</dd></div>
+          <div><dt>Побудова індексу</dt><dd id="stat-time">—</dd></div>
+          <div><dt>Потоків</dt><dd id="stat-threads">—</dd></div>
+        </dl>
+        <p id="stats-note" class="hint"></p>
+
+        <form id="index-form" class="index-form" novalidate>
+          <label for="threads">Потоків для індексації</label>
+          <div class="field small">
+            <input id="threads" name="threads" type="number" min="1" max="1024" step="1" inputmode="numeric" value="4">
+            <button type="submit" id="index-btn">Побудувати індекс</button>
+          </div>
+        </form>
+        <div class="index-progress" id="index-progress" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="index-progress-text">Індексація…</span>
+        </div>
+        <p id="index-result" class="index-result" role="status" aria-live="polite"></p>
+      </section>
+    </aside>
+  </div>
+
+  <noscript><p class="noscript">Для роботи сторінки потрібен JavaScript.</p></noscript>
+</body>
+</html>
