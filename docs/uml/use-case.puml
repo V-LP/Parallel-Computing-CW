@@ -24,6 +24,7 @@ Operator --> UCStats
 Operator --> UCHealth
 
 WebUser --> UCWs
+WebUser --> UCIndex : кнопка «Побудувати індекс»
 WebUser --> UCStats
 WebUser --> UCHealth
 

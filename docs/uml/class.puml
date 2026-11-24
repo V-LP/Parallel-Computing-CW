@@ -18,6 +18,8 @@ package "api" {
     /api/search, /api/stats, WS /ws/search
     (WS лише з searchPool; 4-арг. конструктор = тільки REST)
     DATA_DIR задає каталог датасету
+    Web UI: статичні файли з classpath /web
+    віддаються на / (index.html, app.js, style.css)
   end note
 
   class WsSearchHandler {
