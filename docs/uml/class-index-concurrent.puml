@@ -1,0 +1,152 @@
+@startuml class-index-concurrent
+title Діаграма класів: пакети index і concurrent
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam nodesep 25
+skinparam ranksep 35
+set separator none
+hide empty members
+
+package "index" {
+  class IndexManager {
+    -current: IndexSnapshot  (volatile)
+    -indexing: AtomicBoolean
+    +current(): IndexSnapshot
+    +rebuild(dataDir: Path, threads: int): IndexSnapshot
+    +chunker(): Chunker
+    +isIndexing(): boolean
+  }
+  class IndexSnapshot <<record>> {
+    index: ConcurrentInvertedIndex
+    documents: int
+    buildTimeMs: long
+    threadsUsed: int
+  }
+  class IndexingInProgressException <<exception>>
+  class Indexer {
+    +Indexer(index, tokenizer, chunker)
+    +buildIndex(dataDir: Path, threads: int): int
+    +booksIndexed(): int
+  }
+  class Chunker {
+    -limitChars: long
+    -minTailChars: long
+    +ofKb(kb: int): Chunker
+    +fromEnv(): Chunker
+    +isEnabled(): boolean
+    +docId(path: String, chunk: int): String
+    +parseDocId(docId: String): DocRef
+    +newSplitter(sink: LineSink): Splitter
+    +forEachBodyLine(tokenizer, reader, sink)
+  }
+  note bottom of Chunker
+    Чанк = документ, doc_id = path#N.
+    Закривається на першому рядку, де
+    розмір >= ліміту (CHUNK_SIZE_KB * 1024).
+    Хвіст < 1 КБ приєднується до попереднього.
+  end note
+  class BookEncoding {
+    +detect(file: Path): Charset
+  }
+  class Tokenizer {
+    +tokenize(text: String): List<String>
+    +tokenize(reader: BufferedReader, sink: Consumer<String>)
+    +forEachBodyLine(reader: BufferedReader, handler: Predicate<String>)
+  }
+  note bottom of Tokenizer
+    нижній регістр, терміни 2..40 символів,
+    стоп-слова (resource stopwords.txt),
+    пропуск шапки й футера Gutenberg
+  end note
+  class ConcurrentInvertedIndex {
+    -segments: Segment[]
+    -termCount: AtomicInteger
+    -postingCount: AtomicLong
+    -docLock: ReentrantReadWriteLock
+    -docPaths: String[]
+    -docLengths: int[]
+    +addPosting(term: String, docId: int, frequency: int)
+    +getPostings(term: String): List<Posting>
+    +documentFrequency(term: String): int
+    +termCount(): int
+    +registerDocument(path: String): int
+    +documentPath(docId: int): String
+    +setDocumentLength(docId: int, length: int)
+    +documentLength(docId: int): int
+    +documentCount(): int
+  }
+  note bottom of ConcurrentInvertedIndex
+    Власна хеш-таблиця, без готових concurrent-колекцій.
+    Сегментів 64 за замовчуванням. Термін -> сегмент за хешем;
+    запис під write-lock сегмента, читання під read-lock.
+    getPostings повертає копію.
+    Реєстр документів (docPaths, docLengths): під docLock.
+  end note
+  class Segment <<inner>> {
+    -lock: ReentrantReadWriteLock
+    -buckets: Entry[]
+    -size: int
+    -resize()
+  }
+  class Entry <<inner>> {
+    term: String
+    hash: int
+    postings: ArrayList<Posting>
+    next: Entry
+  }
+  class Posting <<record>> {
+    docId: int
+    termFrequency: int
+  }
+}
+
+package "concurrent" {
+  class ThreadPool {
+    -queueLock: Object
+    -terminationLock: Object
+    -queue: ArrayDeque<Runnable>
+    -workers: Thread[]
+    -activeWorkers: int
+    -liveWorkers: int
+    -shutdown: boolean
+    -terminated: boolean
+    +ThreadPool(threads: int)
+    +submit(task: Runnable)
+    +shutdown()
+    +awaitTermination(timeout: long, unit: TimeUnit): boolean
+    +activeCount(): int
+    +queueSize(): int
+  }
+  note right of ThreadPool
+    Власна черга: synchronized + wait/notify.
+    queueLock: черга й лічильники, на ньому чекають воркери.
+    terminationLock: на ньому чекає awaitTermination.
+    submit після shutdown -> RejectedExecutionException.
+  end note
+}
+
+package "використовуються з інших пакетів" {
+  class SnippetExtractor <<search>>
+  class SearchService <<search>>
+}
+
+IndexManager --> Indexer : creates for each build
+IndexManager o-- IndexSnapshot : publishes
+IndexManager --> Chunker
+IndexManager ..> IndexingInProgressException : throws
+IndexSnapshot --> ConcurrentInvertedIndex
+Indexer --> ThreadPool : submits file tasks
+Indexer --> Tokenizer
+Indexer --> Chunker : межі чанків
+Indexer --> BookEncoding : кодування файлу
+Indexer --> ConcurrentInvertedIndex : writes
+Chunker --> Tokenizer : рядки тіла книги
+ConcurrentInvertedIndex "1" *-- "N" Segment : striped locks
+Segment "1" *-- "*" Entry : bucket lists
+Entry "1" o-- "*" Posting
+SearchService --> IndexManager : current().index()
+SnippetExtractor --> Chunker : ті самі межі
+SnippetExtractor --> BookEncoding
+
+@enduml

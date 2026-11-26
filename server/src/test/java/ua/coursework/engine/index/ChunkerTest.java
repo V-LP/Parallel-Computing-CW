@@ -24,7 +24,6 @@ class ChunkerTest {
 
   @TempDir Path dir;
 
-  /** A line of 9 characters: it counts as 10 with the line break. */
   private static final String LINE = "123456789";
 
   private static List<String> lines(int count) {
@@ -35,7 +34,6 @@ class ChunkerTest {
     return lines;
   }
 
-  /** The chunk number of every line, as the chunker sees them. */
   static List<Integer> chunkOfEachLine(Chunker chunker, List<String> lines) {
     List<int[]> seen = new ArrayList<>();
     Chunker.Splitter splitter =
@@ -65,8 +63,6 @@ class ChunkerTest {
     return all;
   }
 
-  // ---------------------------------------------------------------- boundaries
-
   @Test
   void withoutChunkingEverythingIsChunkOne() {
     assertEquals(repeat(1, 500), chunkOfEachLine(Chunker.disabled(), lines(500)));
@@ -76,7 +72,6 @@ class ChunkerTest {
   @Test
   @SuppressWarnings("unchecked")
   void aChunkIsClosedAtTheFirstLineThatReachesTheLimit() {
-    // 10 characters per line, limit 100: ten lines per chunk, the tenth line closes the chunk
     Chunker chunker = new Chunker(100, 10);
     assertEquals(
         concat(repeat(1, 10), repeat(2, 10), repeat(3, 5)), chunkOfEachLine(chunker, lines(25)));
@@ -84,7 +79,6 @@ class ChunkerTest {
 
   @Test
   void theLineThatCrossesTheLimitStaysInTheChunk() {
-    // 10 + 10 + 10 = 30 >= 25: the third line closes the chunk and belongs to it
     Chunker chunker = new Chunker(25, 5);
     List<Integer> chunks = chunkOfEachLine(chunker, lines(7));
     assertEquals(List.of(1, 1, 1, 2, 2, 2, 3), chunks);
@@ -93,7 +87,6 @@ class ChunkerTest {
   @Test
   @SuppressWarnings("unchecked")
   void aShortLastPieceIsAddedToThePreviousChunk() {
-    // two full chunks and a tail of two lines (20 characters < 30): the tail joins chunk 2
     Chunker chunker = new Chunker(100, 30);
     assertEquals(concat(repeat(1, 10), repeat(2, 12)), chunkOfEachLine(chunker, lines(22)));
   }
@@ -178,7 +171,6 @@ class ChunkerTest {
               seen.add(chunk);
               return chunk < 2;
             });
-    // the first line of chunk 2 is delivered, then the sink stops the reading
     assertEquals(11, seen.size());
     assertEquals(2, seen.get(10).intValue());
   }
@@ -189,7 +181,7 @@ class ChunkerTest {
     List<String> book = new ArrayList<>();
     int lineCount = 350 * 1024 / 57;
     for (int i = 0; i < lineCount; i++) {
-      book.add(String.format("%-56s", "line" + i)); // 56 characters + line break = 57
+      book.add(String.format("%-56s", "line" + i));
     }
 
     List<Integer> chunks = chunkOfEachLine(chunker, book);
@@ -201,8 +193,6 @@ class ChunkerTest {
       assertTrue(chunks.contains(n), "chunk " + n + " exists");
     }
   }
-
-  // ---------------------------------------------------------------- settings and ids
 
   @Test
   void ofKbUsesKilobytesAndOneKilobyteForTheTail() {
@@ -233,8 +223,6 @@ class ChunkerTest {
         new Chunker.DocRef("a.txt#99999999999", 0), Chunker.parseDocId("a.txt#99999999999"));
   }
 
-  // ---------------------------------------------------------------- encoding
-
   private Path write(String name, byte[] bytes) throws IOException {
     Path file = dir.resolve(name);
     Files.write(file, bytes);
@@ -256,7 +244,7 @@ class ChunkerTest {
   void aFileWithAnInvalidByteAnywhereIsLatin1() throws IOException {
     byte[] big = new byte[300_000];
     Arrays.fill(big, (byte) 'a');
-    big[299_990] = (byte) 0xE9; // a lone Latin-1 "é" far behind the first buffer
+    big[299_990] = (byte) 0xE9;
     assertEquals(StandardCharsets.ISO_8859_1, BookEncoding.detect(write("late.txt", big)));
     assertEquals(
         StandardCharsets.ISO_8859_1,
@@ -267,7 +255,7 @@ class ChunkerTest {
   void aCharacterCutAtTheEndOfTheFileIsLatin1() throws IOException {
     byte[] cut = "abc".getBytes(StandardCharsets.UTF_8);
     byte[] withHalfCharacter = Arrays.copyOf(cut, cut.length + 1);
-    withHalfCharacter[cut.length] = (byte) 0xC3; // the first byte of a two-byte character
+    withHalfCharacter[cut.length] = (byte) 0xC3;
     assertEquals(
         StandardCharsets.ISO_8859_1, BookEncoding.detect(write("cut.txt", withHalfCharacter)));
   }
@@ -276,7 +264,7 @@ class ChunkerTest {
   void aMultiByteCharacterOnTheBufferBoundaryIsStillUtf8() throws IOException {
     byte[] bytes = new byte[64 * 1024 + 10];
     Arrays.fill(bytes, (byte) 'a');
-    byte[] e = "é".getBytes(StandardCharsets.UTF_8); // two bytes: put them across the 64 KB edge
+    byte[] e = "é".getBytes(StandardCharsets.UTF_8); // bytes across the 64 KB edge
     bytes[64 * 1024 - 1] = e[0];
     bytes[64 * 1024] = e[1];
     assertEquals(StandardCharsets.UTF_8, BookEncoding.detect(write("edge.txt", bytes)));

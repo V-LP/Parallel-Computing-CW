@@ -4,7 +4,6 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-/** Runs the {@link Cli} in a test and returns what it printed. */
 final class CliTestSupport {
 
   record Result(int code, String out, String err, RecordingOut recording) {}
@@ -28,7 +27,6 @@ final class CliTestSupport {
     return run("", Map.of(), args);
   }
 
-  /** An address where nothing listens: the port of a server that was just closed. */
   static String deadUrl() throws Exception {
     try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
       return "http://127.0.0.1:" + socket.getLocalPort();

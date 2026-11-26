@@ -64,7 +64,6 @@ class IndexManagerTest {
     assertEquals(1, second.threadsUsed());
     assertEquals("three.txt", second.index().documentPath(0));
 
-    // Whoever still holds the first snapshot sees the old index, unchanged.
     assertEquals(2, first.index().documentCount());
     assertEquals(2, first.documents());
   }
@@ -95,7 +94,7 @@ class IndexManagerTest {
               BufferedReader openReader(Path file, Charset charset) throws IOException {
                 started.countDown();
                 try {
-                  release.await(); // keep the first build busy until the test lets it go
+                  release.await(); // first build stays busy
                 } catch (InterruptedException e) {
                   Thread.currentThread().interrupt();
                 }

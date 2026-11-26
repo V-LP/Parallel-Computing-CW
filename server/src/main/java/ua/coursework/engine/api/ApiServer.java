@@ -20,7 +20,6 @@ import ua.coursework.engine.llm.OllamaClient;
 import ua.coursework.engine.search.SearchHit;
 import ua.coursework.engine.search.SearchService;
 
-/** Javalin routes: the REST API and the WebSocket {@code /ws/search}. */
 public final class ApiServer {
 
   private static final Logger LOG = LoggerFactory.getLogger(ApiServer.class);
@@ -28,11 +27,6 @@ public final class ApiServer {
   private static final String KEYWORD_MODE = "keyword";
   private static final String WEB_DIRECTORY = "/web";
 
-  /**
-   * A WebSocket without traffic is closed after this time. Jetty's default is 30 s, which is
-   * shorter than a slow Ollama call (OLLAMA_TIMEOUT_SECONDS is 60 s), and while the server thinks
-   * it sends nothing. So the limit is raised.
-   */
   private static final Duration WS_IDLE_TIMEOUT = Duration.ofMinutes(10);
   private static final ObjectMapper MAPPER =
       new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -41,9 +35,8 @@ public final class ApiServer {
   private final IndexManager indexManager;
   private final SearchService searchService;
   private final Path dataDir;
-  private final ThreadPool searchPool; // runs the WebSocket pipelines; null: no WebSocket
+  private final ThreadPool searchPool; // null disables websocket
 
-  /** A server with the REST API only (no WebSocket route). */
   public ApiServer(
       OllamaClient ollama,
       IndexManager indexManager,
@@ -52,10 +45,6 @@ public final class ApiServer {
     this(ollama, indexManager, searchService, dataDir, null);
   }
 
-  /**
-   * The full server. {@code searchPool} is the pool of our own where WebSocket queries run; the
-   * caller creates it and shuts it down.
-   */
   public ApiServer(
       OllamaClient ollama,
       IndexManager indexManager,
@@ -69,11 +58,6 @@ public final class ApiServer {
     this.searchPool = searchPool;
   }
 
-  /**
-   * Builds the Javalin app with all routes but does not start it. The Web UI (the files in {@code
-   * src/main/resources/web}) is served from the classpath at {@code /}. A request that matches no
-   * file goes on to the routes, so {@code /api/*} and {@code /ws/search} are not hidden by it.
-   */
   public Javalin create() {
     Javalin app =
         Javalin.create(
@@ -83,7 +67,7 @@ public final class ApiServer {
                       files.hostedPath = "/";
                       files.directory = WEB_DIRECTORY;
                       files.location = Location.CLASSPATH;
-                      // the page is small: let the browser always check for a newer version
+                      // browser always revalidates
                       files.headers = Map.of("Cache-Control", "no-cache");
                     }));
     app.get("/api/health", ctx -> ctx.json(new HealthResponse("ok", ollama.isAvailable())));
@@ -96,7 +80,6 @@ public final class ApiServer {
     return app;
   }
 
-  /** Connects the Javalin WebSocket events to {@link WsSearchHandler}. */
   private void addWebSocket(Javalin app) {
     WsSearchHandler handler = new WsSearchHandler(searchService, searchPool);
     app.ws(
@@ -169,7 +152,6 @@ public final class ApiServer {
     ctx.json(new SearchResponse(results, timeMs));
   }
 
-  /** Reads {"query": "...", "mode": "keyword"}. A missing mode means "keyword". */
   private static SearchRequest parseSearchRequest(String body) {
     if (body == null || body.isBlank()) {
       throw new IllegalArgumentException(
@@ -191,7 +173,6 @@ public final class ApiServer {
     return request;
   }
 
-  /** Reads {"threads": N}. An empty body or a missing field means "number of CPUs". */
   private static int parseThreads(String body) {
     if (body == null || body.isBlank()) {
       return Runtime.getRuntime().availableProcessors();

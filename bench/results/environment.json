@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-25T00:07:08",
+  "host_cpu_cores": 12,
+  "host_ram_mb": 15676,
+  "os": "Windows-11-10.0.26300-SP0",
+  "docker": {
+    "NCPU": 12,
+    "MemTotal": 7964119040,
+    "ServerVersion": "28.3.3",
+    "OperatingSystem": "Docker Desktop",
+    "OSType": "linux",
+    "KernelVersion": "5.15.167.4-microsoft-standard-WSL2",
+    "Driver": "overlayfs",
+    "Name": "docker-desktop",
+    "available": true,
+    "compose_version": "2.39.2-desktop.1"
+  },
+  "chunk_size_kb": "100",
+  "git_commit": "f85dbd098fe952b104d14d72fe5a956877d3fc70",
+  "git_dirty": true,
+  "python": "3.12.3",
+  "matplotlib": "3.11.2",
+  "websockets": "16.0",
+  "datasets": {
+    "data": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data",
+      "files": 2808,
+      "size_bytes": 1704387067,
+      "size_mb": 1625.4
+    },
+    "D184MB": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data_extra\\D184MB",
+      "files": 425,
+      "size_bytes": 192889895,
+      "size_mb": 184.0
+    },
+    "D357MB": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data_extra\\D357MB",
+      "files": 815,
+      "size_bytes": 375085283,
+      "size_mb": 357.7
+    },
+    "D670MB": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data_extra\\D670MB",
+      "files": 1694,
+      "size_bytes": 699340827,
+      "size_mb": 666.9
+    },
+    "D1GB": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data_extra\\D1GB",
+      "files": 1883,
+      "size_bytes": 1061865351,
+      "size_mb": 1012.7
+    },
+    "D1.7GB": {
+      "path": "C:\\Users\\Владимир\\Parallel-Computing-CW\\data",
+      "files": 2808,
+      "size_bytes": 1704387067,
+      "size_mb": 1625.4
+    }
+  }
+}

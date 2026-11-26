@@ -16,34 +16,17 @@ import ua.coursework.engine.search.QueryExpansion;
 import ua.coursework.engine.search.SearchHit;
 import ua.coursework.engine.search.SearchService;
 
-/**
- * Logic of the WebSocket {@code /ws/search}. It does not depend on Javalin: the route in {@link
- * ApiServer} only passes the session, the text of a message and a {@link Sink} to this class.
- *
- * <p>Every incoming message is handled by a worker of our own {@link ThreadPool}, never by the
- * Jetty thread that received it. So a slow Ollama call blocks one worker, not the network threads
- * that serve all the other connections.
- *
- * <p>Order of messages. A connection has its own queue of received texts and at most one worker
- * drains it, so the queries of one connection run one after another. Inside a query the stages run
- * in order in one task. All writes to the session go through one {@code synchronized} block per
- * connection, because the session does not allow two threads to send at the same time.
- */
 public final class WsSearchHandler {
 
-  /** Where the messages go. The route wraps the Javalin context in this small interface. */
   public interface Sink {
 
-    /** Sends one text frame. May throw when the client has gone away. */
     void send(String text) throws Exception;
 
     boolean isOpen();
   }
 
-  /** Queries a connection may have waiting; more are refused with an error message. */
   public static final int MAX_PENDING = 16;
 
-  /** Longest accepted query, in characters. */
   public static final int MAX_QUERY_LENGTH = 1000;
 
   private static final Logger LOG = LoggerFactory.getLogger(WsSearchHandler.class);
@@ -52,7 +35,6 @@ public final class WsSearchHandler {
 
   private final SearchService searchService;
   private final ThreadPool pool;
-  /** Key = the WebSocket session. Every access is inside {@code synchronized (connections)}. */
   private final Map<Object, Connection> connections = new HashMap<>();
 
   public WsSearchHandler(SearchService searchService, ThreadPool pool) {
@@ -60,7 +42,6 @@ public final class WsSearchHandler {
     this.pool = Objects.requireNonNull(pool, "pool");
   }
 
-  /** A client connected. {@code session} identifies the connection in the next calls. */
   public void onConnect(Object session, Sink sink) {
     Objects.requireNonNull(session, "session");
     Connection connection = new Connection(Objects.requireNonNull(sink));
@@ -69,7 +50,6 @@ public final class WsSearchHandler {
     }
   }
 
-  /** A text message arrived. Returns at once: the work runs in the pool. */
   public void onMessage(Object session, String text) {
     Connection connection;
     synchronized (connections) {
@@ -82,7 +62,6 @@ public final class WsSearchHandler {
     connection.enqueue(text == null ? "" : text);
   }
 
-  /** The client left (or the connection failed). Work that is still queued is dropped. */
   public void onClose(Object session) {
     Connection connection;
     synchronized (connections) {
@@ -93,21 +72,19 @@ public final class WsSearchHandler {
     }
   }
 
-  /** Number of connections that are open now. */
   public int openConnections() {
     synchronized (connections) {
       return connections.size();
     }
   }
 
-  /** One client. */
   private final class Connection {
 
     private final Sink sink;
-    private final Object sendLock = new Object(); // only one thread writes to the session
-    private final Object queueLock = new Object(); // guards pending and draining
-    private final ArrayDeque<String> pending = new ArrayDeque<>(); // guarded by queueLock
-    private boolean draining; // a worker is taking texts from pending; guarded by queueLock
+    private final Object sendLock = new Object(); // single writer per session
+    private final Object queueLock = new Object();
+    private final ArrayDeque<String> pending = new ArrayDeque<>();
+    private boolean draining; // a worker is draining pending
     private volatile boolean closed;
 
     Connection(Sink sink) {
@@ -148,7 +125,7 @@ public final class WsSearchHandler {
     private void submitWorker() {
       try {
         pool.submit(this::drain);
-      } catch (RejectedExecutionException e) { // the pool is shut down: the server is stopping
+      } catch (RejectedExecutionException e) {
         synchronized (queueLock) {
           draining = false;
           pending.clear();
@@ -157,7 +134,6 @@ public final class WsSearchHandler {
       }
     }
 
-    /** Runs in a pool worker: handles the waiting texts one by one, in arrival order. */
     private void drain() {
       try {
         while (true) {
@@ -171,7 +147,7 @@ public final class WsSearchHandler {
           }
           runPipeline(text);
         }
-      } catch (RuntimeException | Error e) { // runPipeline catches everything; this is a safety net
+      } catch (RuntimeException | Error e) {
         synchronized (queueLock) {
           draining = false;
         }
@@ -179,25 +155,22 @@ public final class WsSearchHandler {
       }
     }
 
-    /** Validates one message and runs the three stages. Never throws. */
     private void runPipeline(String text) {
       try {
         String query = parseQuery(text);
 
-        // Stage 1: query expansion (may take long: it calls the LLM).
         QueryExpansion expansion = null;
         List<String> expandedTerms = List.of();
         try {
           expansion = searchService.expandQuery(query);
           expandedTerms = expansion.expandedTerms();
-        } catch (RuntimeException e) { // expandQuery should not throw; fall back anyway
+        } catch (RuntimeException e) {
           LOG.warn("Query expansion failed, searching with the original query", e);
         }
         if (!send(WsMessage.queryExpansion(query, expandedTerms))) {
           return;
         }
 
-        // Stage 2: keyword search. time_ms measures only this stage.
         long start = System.nanoTime();
         List<SearchHit> hits =
             expansion == null
@@ -219,10 +192,6 @@ public final class WsSearchHandler {
       }
     }
 
-    /**
-     * Sends the messages one after another with no message of this connection in between. Returns
-     * false when the client is gone (the rest is not sent); this is not an error.
-     */
     private boolean send(WsMessage... messages) {
       String[] texts = new String[messages.length];
       for (int i = 0; i < messages.length; i++) {
@@ -240,7 +209,7 @@ public final class WsSearchHandler {
           }
           try {
             sink.send(text);
-          } catch (Exception e) { // the client has gone away in the middle of the sending
+          } catch (Exception e) {
             LOG.debug("Client is gone, stopping the pipeline: {}", e.toString());
             closed = true;
             return false;
@@ -251,7 +220,6 @@ public final class WsSearchHandler {
     }
   }
 
-  /** Reads {"query": "..."} and returns the query. */
   private static String parseQuery(String text) {
     JsonNode root;
     try {
@@ -272,12 +240,11 @@ public final class WsSearchHandler {
     return query.asText();
   }
 
-  /** The client sent something we cannot use; the message text goes to the client. */
   private static final class BadInputException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
     BadInputException(String message) {
-      super(message, null, false, false); // no stack trace: this is a normal event
+      super(message, null, false, false);
     }
   }
 }

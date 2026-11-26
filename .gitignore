@@ -6,6 +6,8 @@ target/
 
 # Dataset (never commit; see README "Датасет")
 /data/
+data_extra/
+screenshots/
 
 # IDE: IntelliJ IDEA
 .idea/

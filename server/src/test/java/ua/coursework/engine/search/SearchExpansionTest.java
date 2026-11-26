@@ -70,7 +70,6 @@ class SearchExpansionTest {
 
   @Test
   void expandedTermsCountLessThanOriginalTerms() throws IOException {
-    // "fish" appears once in fish.txt (original word), "captain" once in ahab.txt (expanded word)
     SearchService service = service(prompt -> "[\"captain\"]");
 
     List<SearchHit> hits = service.searchWithExpansion("fish", 10).hits();
@@ -80,8 +79,7 @@ class SearchExpansionTest {
     assertEquals(1.0, hits.get(0).score());
     assertEquals("ahab.txt", hits.get(1).docId());
     assertTrue(hits.get(1).score() < 1.0);
-    // with weight 1.0 for both words the order of equal-ish documents is decided by other factors;
-    // with weight 0.5 the expanded word must score strictly lower than with weight 1.0
+    // expanded word scores lower at weight 0.5
     double halfWeight = hits.get(1).score();
     double fullWeight =
         sameWeights.stream().filter(h -> h.docId().equals("ahab.txt")).findFirst().get().score();

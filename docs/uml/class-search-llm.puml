@@ -1,0 +1,107 @@
+@startuml class-search-llm
+title Діаграма класів: пакети search і llm
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam nodesep 25
+skinparam ranksep 35
+set separator none
+hide empty members
+
+package "search" {
+  class SearchService {
+    +DEFAULT_TOP_K: int = 10
+    +ORIGINAL_WEIGHT: double = 1.0
+    +EXPANDED_WEIGHT: double = 0.5
+    +search(query: String, topK: int): List<SearchHit>
+    +keywordSearch(terms: List<String>, topK: int): List<SearchHit>
+    +keywordSearchWeighted(terms: List<WeightedTerm>, topK: int): List<SearchHit>
+    +expandQuery(query: String): QueryExpansion
+    +searchExpanded(expansion: QueryExpansion, topK: int): List<SearchHit>
+    +searchWithExpansion(query: String, topK: int): ExpandedSearch
+  }
+  note bottom of SearchService
+    TF-IDF: tf = 1 + ln(freq), idf = ln(1 + N/df),
+    score = coord * sum(weight * tf * idf) / (1 + ln(length)).
+    OR-семантика, top-K через PriorityQueue,
+    рівні оцінки впорядковуються за doc_id.
+  end note
+  class QueryExpansion <<record>> {
+    original: String
+    originalTerms: List<String>
+    expandedTerms: List<String>
+  }
+  class ExpandedSearch <<record>> {
+    expansion: QueryExpansion
+    hits: List<SearchHit>
+  }
+  class WeightedTerm <<record>> {
+    term: String
+    weight: double
+  }
+  class SearchHit <<record>> {
+    docId: String
+    score: double
+    snippet: String
+  }
+  class SnippetExtractor {
+    +extract(docId: String, terms: Collection<String>): String
+  }
+}
+
+package "llm" {
+  interface TextGenerator {
+    +generate(prompt: String): String
+  }
+  class QueryExpander {
+    -llmGate: Semaphore(1)
+    -cache: LRU LinkedHashMap
+    +MAX_TERMS: int = 8
+    +expand(query: String): List<String>
+    ~parse(answer: String, queryTerms: List<String>): List<String>
+  }
+  class OllamaClient {
+    -baseUrl: String
+    -model: String
+    -generateTimeout: Duration
+    +fromEnv(): OllamaClient
+    +isAvailable(): boolean
+    +generate(prompt: String): String  (keep_alive 30m)
+    +ensureModelAvailable()
+    +ensureModelAvailableWithRetries(attempts: int, pauseMillis: long): boolean
+  }
+  note bottom of OllamaClient
+    Main після ensureModelAvailable робить один
+    прогрів generate("Say OK"); помилка лише в лог.
+  end note
+  class OllamaException <<checked>>
+}
+
+package "використовуються з інших пакетів" {
+  class WsSearchHandler <<api>>
+  class IndexManager <<index>>
+  class Tokenizer <<index>>
+  class Chunker <<index>>
+  class BookEncoding <<index>>
+}
+
+WsSearchHandler --> SearchService : expandQuery, searchExpanded
+SearchService --> IndexManager : current().index()
+SearchService --> Tokenizer
+SearchService ..> QueryExpander : expandQuery
+SearchService ..> QueryExpansion : returns
+SearchService ..> ExpandedSearch : returns
+SearchService ..> SearchHit : returns
+SearchService --> WeightedTerm
+SearchService --> SnippetExtractor : top-K snippets
+ExpandedSearch o-- QueryExpansion
+SnippetExtractor --> Tokenizer : body lines
+SnippetExtractor --> Chunker : ті самі межі
+SnippetExtractor --> BookEncoding
+
+QueryExpander --> TextGenerator
+OllamaClient ..|> TextGenerator
+OllamaClient ..> OllamaException : throws
+TextGenerator ..> OllamaException : throws
+
+@enduml

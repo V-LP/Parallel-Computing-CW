@@ -1,0 +1,4 @@
+services:
+  server:
+    volumes:
+      - ${BENCH_DATA_DIR:-./data}:/data:ro

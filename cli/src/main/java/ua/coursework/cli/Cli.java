@@ -14,10 +14,8 @@ import java.util.Map;
 import java.util.function.Function;
 import ua.coursework.cli.CliOptions.Command;
 
-/** Runs the commands of the console client. {@link #run} returns the exit code. */
 public final class Cli {
 
-  /** Exit codes: 0 ok, 1 runtime failure (server down, HTTP error, timeout), 2 wrong usage. */
   public static final int EXIT_OK = 0;
 
   public static final int EXIT_FAILURE = 1;
@@ -25,7 +23,7 @@ public final class Cli {
 
   static final Duration SEARCH_TIMEOUT = Duration.ofSeconds(120);
   static final Duration QUICK_TIMEOUT = Duration.ofSeconds(10);
-  static final Duration INDEX_TIMEOUT = Duration.ofMinutes(30); // indexing is long
+  static final Duration INDEX_TIMEOUT = Duration.ofMinutes(30);
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -34,9 +32,6 @@ public final class Cli {
   private final InputStream in;
   private final Function<String, String> env;
 
-  /**
-   * @param env reads an environment variable (null if not set); {@code System::getenv} in real use
-   */
   public Cli(PrintStream out, PrintStream err, InputStream in, Function<String, String> env) {
     this.out = out;
     this.err = err;
@@ -61,7 +56,7 @@ public final class Cli {
       err.println(e.getMessage());
       return EXIT_FAILURE;
     } catch (SearchFailedException e) {
-      return EXIT_FAILURE; // the message was already printed
+      return EXIT_FAILURE; // message already printed
     }
   }
 
@@ -152,7 +147,6 @@ public final class Cli {
     out.println("Час: " + timeMs + " мс (" + String.format(Locale.ROOT, "%.1f", timeMs / 1000.0) + " с)");
   }
 
-  /** The query from the command line; "-" means: read it from stdin as UTF-8. */
   private String readQuery(String query) throws UsageException {
     if (!query.equals("-")) {
       return query;
@@ -183,7 +177,6 @@ public final class Cli {
         return root;
       }
     } catch (IOException e) {
-      // falls through to the error below
     }
     throw new CliException("Сервер повернув відповідь не у форматі JSON.");
   }
@@ -201,7 +194,6 @@ public final class Cli {
     return value == null ? "?" : value.asText();
   }
 
-  /** The search ended, but the server reported an error (already printed): exit code 1. */
   private static final class SearchFailedException extends Exception {
     private static final long serialVersionUID = 1L;
 

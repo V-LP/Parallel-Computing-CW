@@ -13,10 +13,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-/**
- * Runs one search over the WebSocket /ws/search with the JDK client. Every message is given to the
- * {@link StageRenderer} as soon as it arrives, so the user sees the stages one after another.
- */
 public final class WsSearch {
 
   private final HttpClient http;
@@ -27,14 +23,6 @@ public final class WsSearch {
     this.url = url;
   }
 
-  /**
-   * Sends the query and waits for "done".
-   *
-   * @param requestJson the first message, {@code {"query": "..."}}
-   * @param timeout how long to wait for the whole answer
-   * @throws CliException if the server cannot be reached, closes the connection before "done", or
-   *     does not finish in time
-   */
   public void search(String requestJson, Duration timeout, StageRenderer renderer)
       throws CliException {
     CompletableFuture<Void> finished = new CompletableFuture<>();
@@ -59,7 +47,7 @@ public final class WsSearch {
       Thread.currentThread().interrupt();
       throw new CliException("Перервано.", e);
     } finally {
-      socket.abort(); // harmless after a normal close; frees the connection after an error
+      socket.abort();
     }
   }
 
@@ -98,11 +86,9 @@ public final class WsSearch {
     try {
       socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye").get(2, TimeUnit.SECONDS);
     } catch (Exception e) {
-      // the answer is complete; a failed goodbye does not matter
     }
   }
 
-  /** Collects the pieces of a message and passes the whole message on. */
   private static final class Listener implements WebSocket.Listener {
 
     private final CompletableFuture<Void> finished;

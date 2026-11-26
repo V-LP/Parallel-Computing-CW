@@ -16,42 +16,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ua.coursework.engine.index.Tokenizer;
 
-/**
- * Asks the LLM for extra keywords and synonyms of a search query.
- *
- * <p>{@link #expand} never throws: if the LLM is busy, down, too slow or answers nonsense, the
- * result is an empty list and the caller simply searches with the original query (the "fallback").
- *
- * <p>Only one generation runs at a time (a {@link Semaphore} with one permit): a small local model
- * is slow and several parallel generations would only make every one of them slower. A request that
- * cannot get the permit within a short time gives up and falls back instead of queueing up.
- */
 public final class QueryExpander {
 
-  /** At most this many expansion terms are returned. */
   public static final int MAX_TERMS = 8;
 
   private static final Logger LOG = LoggerFactory.getLogger(QueryExpander.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final long DEFAULT_WAIT_MILLIS = 5_000;
   private static final int DEFAULT_CACHE_SIZE = 256;
-  /** In the comma/line fallback, an item with more words than this is a sentence, not a keyword. */
   private static final int MAX_WORDS_PER_ITEM = 4;
 
   private final TextGenerator generator;
   private final Tokenizer tokenizer;
   private final long permitWaitMillis;
   private final Semaphore llmGate = new Semaphore(1);
-  private final Map<String, List<String>> cache; // LRU; every access is inside synchronized (cache)
+  private final Map<String, List<String>> cache; // lru, guarded by itself
 
   public QueryExpander(TextGenerator generator, Tokenizer tokenizer) {
     this(generator, tokenizer, DEFAULT_WAIT_MILLIS, DEFAULT_CACHE_SIZE);
   }
 
-  /**
-   * @param permitWaitMillis how long a call waits for the single generation permit
-   * @param cacheSize number of remembered expansions; 0 turns the cache off
-   */
   public QueryExpander(
       TextGenerator generator, Tokenizer tokenizer, long permitWaitMillis, int cacheSize) {
     this.generator = Objects.requireNonNull(generator, "generator");
@@ -59,7 +43,7 @@ public final class QueryExpander {
     this.permitWaitMillis = permitWaitMillis;
     final int capacity = Math.max(0, cacheSize);
     this.cache =
-        new LinkedHashMap<>(16, 0.75f, true) { // true = access order, so the eldest is the LRU
+        new LinkedHashMap<>(16, 0.75f, true) {
           private static final long serialVersionUID = 1L;
 
           @Override
@@ -69,11 +53,6 @@ public final class QueryExpander {
         };
   }
 
-  /**
-   * Returns up to {@value #MAX_TERMS} new terms related to the query, or an empty list when the
-   * expansion is not possible. The terms are already tokenized (lower case, no stop words), are
-   * not repeated and do not contain words that are already in the query.
-   */
   public List<String> expand(String query) {
     if (query == null) {
       return List.of();
@@ -121,7 +100,6 @@ public final class QueryExpander {
     }
   }
 
-  /** The prompt sent to the model (English, because the documents are English). */
   static String buildPrompt(String query) {
     return "You are a search engine helper. Given a search query, list 5 to 8 related English "
         + "keywords and synonyms that help to find relevant books.\n"
@@ -132,13 +110,6 @@ public final class QueryExpander {
         + "\nJSON array:";
   }
 
-  /**
-   * Turns the model answer into expansion terms. First it tries to read a JSON array (also when the
-   * model wrapped it in text or a code block). If that fails, the answer is split by commas, lines
-   * and semicolons, and list markers and quotes are removed. Every item goes through the {@link
-   * Tokenizer}; duplicates, stop words and words already in the query are dropped; at most {@value
-   * #MAX_TERMS} terms are kept.
-   */
   List<String> parse(String answer, List<String> queryTerms) {
     if (answer == null || answer.isBlank()) {
       return List.of();
@@ -163,7 +134,6 @@ public final class QueryExpander {
     return List.copyOf(result);
   }
 
-  /** Returns the text items of the first "[...]" in the answer, or null if there is no JSON array. */
   private static List<String> parseJsonArray(String answer) {
     int start = answer.indexOf('[');
     int end = answer.lastIndexOf(']');
@@ -190,7 +160,6 @@ public final class QueryExpander {
   private static List<String> splitPlainText(String answer) {
     List<String> items = new ArrayList<>();
     for (String part : answer.split("[,;\\n\\r]+")) {
-      // Remove list markers ("-", "*", "1.", "2)") and brackets/quotes around the word.
       String item =
           part.replaceFirst("^\\s*(?:[-*•]|\\d+[.)])\\s+", "")
               .replaceAll("^[\\s\\[\\]\"'`]+|[\\s\\[\\]\"'`]+$", "");
@@ -198,7 +167,7 @@ public final class QueryExpander {
         continue;
       }
       if (item.split("\\s+").length > MAX_WORDS_PER_ITEM) {
-        continue; // a whole sentence ("Sure, here are some words:") is not a keyword
+        continue; // a sentence, not a keyword
       }
       items.add(item);
     }

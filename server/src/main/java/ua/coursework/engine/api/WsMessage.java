@@ -4,11 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
-/**
- * One message that the server sends over the WebSocket: {@code {"stage": "...", "data": {...}}}.
- * The {@code data} field is left out when it is null, so the last message is just {@code
- * {"stage":"done"}}.
- */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WsMessage(@JsonProperty("stage") String stage, @JsonProperty("data") Object data) {
 
@@ -17,17 +12,14 @@ public record WsMessage(@JsonProperty("stage") String stage, @JsonProperty("data
   public static final String ERROR = "error";
   public static final String DONE = "done";
 
-  /** The "data" of the query_expansion stage. */
   public record Expansion(
       @JsonProperty("original") String original,
       @JsonProperty("expanded_terms") List<String> expandedTerms) {}
 
-  /** The "data" of the keyword_search stage. */
   public record Search(
       @JsonProperty("results") List<SearchResult> results,
       @JsonProperty("time_ms") long timeMs) {}
 
-  /** The "data" of the error stage. */
   public record Failure(@JsonProperty("message") String message) {}
 
   public static WsMessage queryExpansion(String original, List<String> expandedTerms) {

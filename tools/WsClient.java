@@ -9,18 +9,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
-/**
- * Manual test client for the WebSocket /ws/search. Needs only a JDK (no Maven, no Node.js):
- *
- * <pre>
- *   java tools/WsClient.java "white whale"
- *   java tools/WsClient.java "white whale" --url ws://localhost:8080/ws/search --timeout 120
- * </pre>
- *
- * Prints every message with a time stamp (HH:mm:ss.SSS) and the time since the query was sent, and
- * stops after the message with stage "done". Exit code: 0 = done received, 1 = connection error or
- * timeout, 2 = wrong arguments.
- */
 public class WsClient {
 
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
@@ -38,7 +26,7 @@ public class WsClient {
       } else if (query == null) {
         query = args[i];
       } else {
-        query = query + " " + args[i]; // unquoted words are joined
+        query = query + " " + args[i];
       }
     }
     if (query == null || query.isBlank()) {
@@ -118,7 +106,6 @@ public class WsClient {
     }
   }
 
-  /** Prints "time  [+elapsed ms]  text". elapsed &lt; 0 or 0 means "do not show". */
   private static void print(String text, long elapsedMs) {
     String stamp = LocalTime.now().format(TIME);
     if (elapsedMs > 0) {

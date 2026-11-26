@@ -6,17 +6,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Turns the answers of the server into the text the user reads. */
 public final class ResultFormatter {
 
-  /** Width of the printed lines, including the indent of a snippet. */
   public static final int LINE_WIDTH = 100;
 
   private static final String INDENT = "    ";
 
   private ResultFormatter() {}
 
-  /** "Розширення: a, b" or, when the list is empty, the fallback line. */
   public static String expansionLine(List<String> terms) {
     if (terms.isEmpty()) {
       return "Розширення: немає (Ollama недоступна)";
@@ -24,7 +21,6 @@ public final class ResultFormatter {
     return "Розширення: " + String.join(", ", terms);
   }
 
-  /** Prints the numbered results with wrapped snippets, then the search time. */
   public static void printResults(PrintStream out, JsonNode results, long timeMs) {
     if (results == null || !results.isArray() || results.isEmpty()) {
       out.println("Нічого не знайдено.");
@@ -40,7 +36,6 @@ public final class ResultFormatter {
     out.println("Час пошуку: " + timeMs + " мс");
   }
 
-  /** "1. doc_id  0.9500". */
   static String resultLine(int number, JsonNode result) {
     JsonNode score = result.get("score");
     String scoreText = score != null && score.isNumber() ? String.format(Locale.ROOT, "%.4f", score.asDouble()) : "?";
@@ -52,11 +47,6 @@ public final class ResultFormatter {
     return value == null || value.isNull() ? "" : value.asText();
   }
 
-  /**
-   * Splits the text into lines of at most {@code width} characters, breaking only at spaces. All
-   * white space (also line breaks) counts as one space. A word longer than the width is cut.
-   * Blank text gives an empty list.
-   */
   public static List<String> wrap(String text, int width) {
     if (width < 1) {
       throw new IllegalArgumentException("width must be positive");
@@ -67,7 +57,7 @@ public final class ResultFormatter {
     }
     StringBuilder line = new StringBuilder();
     for (String word : text.trim().split("\\s+")) {
-      while (word.length() > width) { // a very long word: put its pieces on lines of their own
+      while (word.length() > width) {
         if (line.length() > 0) {
           lines.add(line.toString());
           line.setLength(0);

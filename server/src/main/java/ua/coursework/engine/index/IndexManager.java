@@ -7,11 +7,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Owns the current index. A new index is built on the side and then published with one write to a
- * volatile field, so readers see either the old complete index or the new complete one, never a
- * half-built index. Only one build may run at a time.
- */
 public class IndexManager {
 
   private static final Logger LOG = LoggerFactory.getLogger(IndexManager.class);
@@ -23,7 +18,6 @@ public class IndexManager {
   private volatile IndexSnapshot current =
       new IndexSnapshot(new ConcurrentInvertedIndex(), 0, 0, 0);
 
-  /** A manager without chunking: one file is one document. */
   public IndexManager(Tokenizer tokenizer) {
     this(tokenizer, Chunker.disabled());
   }
@@ -33,12 +27,10 @@ public class IndexManager {
     this.chunker = Objects.requireNonNull(chunker, "chunker");
   }
 
-  /** The chunker used for every build. Snippets must use the same one to find the same chunks. */
   public Chunker chunker() {
     return chunker;
   }
 
-  /** The latest finished index (an empty one before the first build). Never null. */
   public IndexSnapshot current() {
     return current;
   }
@@ -47,12 +39,6 @@ public class IndexManager {
     return indexing.get();
   }
 
-  /**
-   * Builds a new index from {@code dataDir} and replaces the current one with it.
-   *
-   * @throws IndexingInProgressException if another build is running (nothing is changed)
-   * @throws IOException if the data directory cannot be read (the old index stays)
-   */
   public IndexSnapshot rebuild(Path dataDir, int threads) throws IOException {
     if (!indexing.compareAndSet(false, true)) {
       throw new IndexingInProgressException();
@@ -65,7 +51,7 @@ public class IndexManager {
       long timeMs = (System.nanoTime() - start) / 1_000_000;
 
       IndexSnapshot snapshot = new IndexSnapshot(fresh, documents, timeMs, threads);
-      current = snapshot; // the atomic switch
+      current = snapshot; // atomic switch
       logSummary(snapshot, indexer.booksIndexed());
       return snapshot;
     } finally {
@@ -73,7 +59,6 @@ public class IndexManager {
     }
   }
 
-  /** Creates the indexer for one build. A separate method so that tests can replace it. */
   Indexer newIndexer(ConcurrentInvertedIndex target, Tokenizer tokenizer) {
     return new Indexer(target, tokenizer, chunker);
   }

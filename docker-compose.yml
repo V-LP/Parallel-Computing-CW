@@ -21,19 +21,15 @@ services:
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
       OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-60}
-      # Size of the pool for WebSocket queries; empty = number of CPUs.
+      OLLAMA_SEED: ${OLLAMA_SEED:-42}
       SEARCH_THREADS: ${SEARCH_THREADS:-}
     volumes:
       - ./data:/data:ro
-    # Optional memory limit for the server container (the JVM heap is 75% of it). Example:
-    #   SERVER_MEM_LIMIT=8g docker compose up --build   (then uncomment the next line)
     # mem_limit: ${SERVER_MEM_LIMIT}
     depends_on:
       ollama:
         condition: service_healthy
 
-  # Console client. Not started by "docker compose up" (profile "cli"); use:
-  #   docker compose run --rm cli "white whale"
   cli:
     profiles: ["cli"]
     build:

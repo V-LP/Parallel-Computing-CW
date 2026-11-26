@@ -12,13 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Chooses the charset of a book: UTF-8 if the whole file is valid UTF-8, otherwise ISO-8859-1.
- *
- * <p>The indexer and the snippet builder must read a file with the same charset, because the same
- * text has a different number of characters in the two charsets and the chunk boundaries depend on
- * it. That is why the decision is made in one place, for the whole file.
- */
 public final class BookEncoding {
 
   private static final int BUFFER = 64 * 1024;
@@ -32,7 +25,7 @@ public final class BookEncoding {
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT);
     ByteBuffer bytes = ByteBuffer.allocate(BUFFER);
-    CharBuffer chars = CharBuffer.allocate(BUFFER); // never overflows: 1 byte gives at most 1 char
+    CharBuffer chars = CharBuffer.allocate(BUFFER);
     try (InputStream in = Files.newInputStream(file)) {
       boolean endOfInput = false;
       while (!endOfInput) {
@@ -48,7 +41,7 @@ public final class BookEncoding {
           return StandardCharsets.ISO_8859_1;
         }
         chars.clear();
-        bytes.compact(); // keeps the start of a character that is cut at the end of the buffer
+        bytes.compact(); // keeps a split character for the next read
       }
       if (decoder.flush(chars).isError()) {
         return StandardCharsets.ISO_8859_1;

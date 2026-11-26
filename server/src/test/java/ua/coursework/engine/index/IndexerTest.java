@@ -39,7 +39,6 @@ class IndexerTest {
     return new Indexer(index, tokenizer).buildIndex(dataDir, threads);
   }
 
-  /** Document path to term frequency, for one term. Independent of the numeric doc ids. */
   private static Map<String, Integer> frequencies(ConcurrentInvertedIndex index, String term) {
     Map<String, Integer> result = new HashMap<>();
     for (Posting p : index.getPostings(term)) {
@@ -67,8 +66,8 @@ class IndexerTest {
 
     assertEquals(2, indexed);
     assertEquals(2, index.documentCount());
-    assertEquals(4, index.termCount()); // alpha, beta, gamma, delta
-    assertEquals(5L, index.postingCount()); // a.txt: 3 terms, sub/b.txt: 2 terms
+    assertEquals(4, index.termCount());
+    assertEquals(5L, index.postingCount());
     assertEquals(Map.of("a.txt", 2, "sub/b.txt", 1), frequencies(index, "beta"));
     assertEquals(Map.of("sub/b.txt", 3), frequencies(index, "delta"));
     assertEquals(Map.of("a.txt", 1), frequencies(index, "alpha"));
@@ -107,7 +106,6 @@ class IndexerTest {
       assertEquals(one.documentCount(), many.documentCount(), "threads=" + threads);
       assertEquals(one.termCount(), many.termCount(), "threads=" + threads);
       assertEquals(one.postingCount(), many.postingCount(), "threads=" + threads);
-      // Doc ids may differ between runs, so compare by document path.
       for (int w = 0; w < vocabulary; w++) {
         String term = "word" + w;
         assertEquals(frequencies(one, term), frequencies(many, term), term + " threads=" + threads);
@@ -163,7 +161,7 @@ class IndexerTest {
 
   @Test
   void fileThatIsNotUtf8IsReadAsLatin1() throws IOException {
-    // 0xE9 is "é" in ISO-8859-1 but an invalid byte sequence in UTF-8.
+    // latin-1 byte, invalid utf-8
     byte[] latin1 = "café latte".getBytes(StandardCharsets.ISO_8859_1);
     write("latin1.txt", latin1);
     write("utf8.txt", "naïve latte");

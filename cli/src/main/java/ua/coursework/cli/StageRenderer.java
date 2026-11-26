@@ -6,10 +6,6 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Prints the WebSocket messages of the server one by one, at the moment each arrives. It does not
- * touch the network, so it is easy to test with plain strings.
- */
 public final class StageRenderer {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -25,11 +21,6 @@ public final class StageRenderer {
     this.rawJson = rawJson;
   }
 
-  /**
-   * Handles one message.
-   *
-   * @return true after the "done" message (the search is finished)
-   */
   public boolean accept(String message) {
     if (rawJson) {
       out.println(message);
@@ -75,13 +66,12 @@ public final class StageRenderer {
         return true;
       }
       default -> {
-        // A stage that this client does not know: ignore it (the server may be newer).
+        // unknown stage, ignore
       }
     }
     return false;
   }
 
-  /** True if the server reported an error or sent something that is not understood. */
   public boolean failed() {
     return failed;
   }

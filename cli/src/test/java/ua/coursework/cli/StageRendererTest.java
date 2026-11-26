@@ -77,7 +77,7 @@ class StageRendererTest {
     assertTrue(renderer.failed());
     assertEquals("Помилка: query is empty\n", err());
     assertEquals("", out());
-    assertTrue(renderer.accept(DONE)); // "done" still follows the error
+    assertTrue(renderer.accept(DONE));
   }
 
   @Test

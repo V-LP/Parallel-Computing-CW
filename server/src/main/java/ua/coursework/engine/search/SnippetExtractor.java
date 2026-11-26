@@ -15,15 +15,6 @@ import ua.coursework.engine.index.BookEncoding;
 import ua.coursework.engine.index.Chunker;
 import ua.coursework.engine.index.Tokenizer;
 
-/**
- * Builds a short text fragment (about 200 characters) around the first occurrence of a query term
- * in a book. Only the book body is read (the Gutenberg header and footer are skipped), line by
- * line, and reading stops as soon as the fragment is complete.
- *
- * <p>A document id {@code path#N} means chunk N of the file. The same {@link Chunker} as in the
- * indexer finds the lines of that chunk, and the snippet is taken only from them, so it never
- * crosses the chunk boundary. An id without {@code #N} means the whole file.
- */
 final class SnippetExtractor {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnippetExtractor.class);
@@ -42,7 +33,6 @@ final class SnippetExtractor {
     this.chunker = chunker;
   }
 
-  /** Returns the snippet, or an empty string if there is none or the file cannot be read. */
   String extract(String docId, Collection<String> terms) {
     if (terms.isEmpty()) {
       return "";
@@ -51,7 +41,7 @@ final class SnippetExtractor {
     Chunker.DocRef ref = Chunker.parseDocId(docId);
     Path file = dataDir.resolve(ref.path());
     try {
-      // The same charset decision as in the indexer, otherwise the chunk boundaries could differ.
+      // same charset rule as the indexer
       Charset charset = BookEncoding.detect(file);
       return readSnippet(file, charset, pattern, ref.chunk());
     } catch (IOException | RuntimeException e) {
@@ -60,7 +50,6 @@ final class SnippetExtractor {
     }
   }
 
-  /** Matches any of the terms as a whole word, ignoring case ("cat" does not match "category"). */
   private static Pattern wholeWordPattern(Collection<String> terms) {
     StringBuilder alternatives = new StringBuilder();
     for (String term : terms) {
@@ -76,9 +65,9 @@ final class SnippetExtractor {
 
   private String readSnippet(Path file, Charset charset, Pattern pattern, int wantedChunk)
       throws IOException {
-    StringBuilder text = new StringBuilder(); // normalized body text read so far
-    int[] match = {-1, -1}; // start and end of the first match in text
-    int[] enough = {0}; // stop reading when text is at least this long
+    StringBuilder text = new StringBuilder();
+    int[] match = {-1, -1};
+    int[] enough = {0};
 
     try (BufferedReader reader = Files.newBufferedReader(file, charset)) {
       chunker.forEachBodyLine(
@@ -87,10 +76,10 @@ final class SnippetExtractor {
           (chunk, line) -> {
             if (wantedChunk > 0) {
               if (chunk < wantedChunk) {
-                return true; // an earlier chunk: skip it
+                return true;
               }
               if (chunk > wantedChunk) {
-                return false; // the wanted chunk has ended
+                return false;
               }
             }
             String normalized = WHITESPACE.matcher(line).replaceAll(" ").strip();
@@ -104,7 +93,7 @@ final class SnippetExtractor {
             text.append(normalized);
 
             if (match[0] < 0) {
-              // Search only in the new part; transparent bounds let the look-behind see the old text.
+              // transparent bounds let look-behind see old text
               Matcher matcher = pattern.matcher(text);
               matcher.useTransparentBounds(true).useAnchoringBounds(false);
               matcher.region(from, text.length());
@@ -114,7 +103,7 @@ final class SnippetExtractor {
                 enough[0] = match[1] + halfWindow(match[1] - match[0]) + 1;
               }
             }
-            return match[0] < 0 || text.length() < enough[0]; // false = stop reading
+            return match[0] < 0 || text.length() < enough[0];
           });
     }
 
@@ -128,7 +117,6 @@ final class SnippetExtractor {
     return Math.max(0, (SNIPPET_LENGTH - matchLength) / 2);
   }
 
-  /** Cuts about SNIPPET_LENGTH characters around the match without splitting words. */
   private static String cut(StringBuilder text, int matchStart, int matchEnd) {
     int half = halfWindow(matchEnd - matchStart);
     int start = Math.max(0, matchStart - half);

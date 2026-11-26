@@ -24,7 +24,7 @@ class TokenizerTest {
 
   @Test
   void hyphenAndApostropheSeparateTerms() {
-    // The hyphen splits "well-known". "don't" gives "don" (a stop word) and "t" (too short).
+    // hyphen and apostrophe split words
     assertEquals(List.of("well", "known"), tokenizer.tokenize("well-known don't"));
   }
 
@@ -154,7 +154,6 @@ class TokenizerTest {
 
     List<String> terms = tokenizer.tokenize(text.toString());
 
-    // Nothing is skipped: the marker line is ordinary text ("start", "late", "marker").
     int alphas = Tokenizer.HEADER_SCAN_LINES + 10;
     assertEquals(alphas + 4, terms.size());
     assertTrue(terms.contains("late"));

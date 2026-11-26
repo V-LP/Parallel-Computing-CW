@@ -8,22 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/**
- * Own thread-safe inverted index: term to list of {@link Posting}s, plus a registry of documents.
- *
- * <p>Design: the term space is split into a power-of-two number of <b>segments</b> (64 by default).
- * A term always belongs to one segment, chosen by its hash. Each segment is a small hash table that
- * we wrote ourselves (array of buckets, each bucket a linked list of entries, doubled when it gets
- * 75% full) guarded by its own {@link ReentrantReadWriteLock}. Writers to different segments do
- * not wait for each other, and many readers can read one segment at the same time. No ready-made
- * thread-safe map or list classes are used.
- *
- * <p>Documents have numeric ids that are issued by {@link #registerDocument(String)}. The mapping
- * id to path and the document lengths are kept in a separate registry with its own lock.
- */
 public final class ConcurrentInvertedIndex {
 
-  /** Default number of segments. */
   public static final int DEFAULT_SEGMENT_COUNT = 64;
 
   private static final int MAX_SEGMENT_COUNT = 1 << 16;
@@ -37,7 +23,7 @@ public final class ConcurrentInvertedIndex {
   private final AtomicInteger termCount = new AtomicInteger();
   private final AtomicLong postingCount = new AtomicLong();
 
-  // Document registry. All fields below are guarded by docLock.
+  // guarded by docLock
   private final ReentrantReadWriteLock docLock = new ReentrantReadWriteLock();
   private String[] docPaths = new String[INITIAL_DOC_CAPACITY];
   private int[] docLengths = new int[INITIAL_DOC_CAPACITY];
@@ -47,9 +33,6 @@ public final class ConcurrentInvertedIndex {
     this(DEFAULT_SEGMENT_COUNT);
   }
 
-  /**
-   * @param segmentCount number of segments; must be a power of two between 1 and 65536
-   */
   public ConcurrentInvertedIndex(int segmentCount) {
     if (segmentCount < 1
         || segmentCount > MAX_SEGMENT_COUNT
@@ -66,15 +49,6 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  // ---------------------------------------------------------------- terms and postings
-
-  /**
-   * Adds one posting to the list of {@code term}. The caller should add each (term, document) pair
-   * once; equal pairs are not merged. Safe to call from many threads.
-   *
-   * @throws NullPointerException if term is null
-   * @throws IllegalArgumentException if docId is negative or frequency is less than 1
-   */
   public void addPosting(String term, int docId, int frequency) {
     Objects.requireNonNull(term, "term");
     if (docId < 0) {
@@ -91,39 +65,30 @@ public final class ConcurrentInvertedIndex {
     postingCount.incrementAndGet();
   }
 
-  /**
-   * Returns a read-only copy of the posting list of {@code term} (empty if the term is unknown). The
-   * copy is a snapshot: later writes do not change it, so the caller can use it without any lock.
-   */
   public List<Posting> getPostings(String term) {
     Objects.requireNonNull(term, "term");
     int hash = hash(term);
     return segments[hash & segmentMask].get(term, hash);
   }
 
-  /** Number of documents that contain {@code term} (the length of its posting list), for IDF. */
   public int documentFrequency(String term) {
     Objects.requireNonNull(term, "term");
     int hash = hash(term);
     return segments[hash & segmentMask].count(term, hash);
   }
 
-  /** Number of distinct terms. */
   public int termCount() {
     return termCount.get();
   }
 
-  /** Total number of postings in all lists. */
   public long postingCount() {
     return postingCount.get();
   }
 
-  /** Number of segments (fixed when the index is created). */
   public int segmentCount() {
     return segments.length;
   }
 
-  /** Total number of buckets over all segments. Package-private: used by tests to see resizing. */
   int bucketCount() {
     int total = 0;
     for (Segment segment : segments) {
@@ -132,12 +97,6 @@ public final class ConcurrentInvertedIndex {
     return total;
   }
 
-  // ---------------------------------------------------------------- documents
-
-  /**
-   * Registers a document and returns its numeric id (0, 1, 2, ... in order of registration). Safe to
-   * call from many threads: every caller gets a different id.
-   */
   public int registerDocument(String path) {
     Objects.requireNonNull(path, "path");
     docLock.writeLock().lock();
@@ -153,7 +112,6 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** Stores the length of a document in tokens (needed for TF-IDF normalisation). */
   public void setDocumentLength(int docId, int length) {
     if (length < 0) {
       throw new IllegalArgumentException("length must be >= 0, got " + length);
@@ -167,7 +125,6 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** Path (or name) given to {@link #registerDocument(String)}. */
   public String documentPath(int docId) {
     docLock.readLock().lock();
     try {
@@ -178,7 +135,6 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** Length in tokens set by {@link #setDocumentLength(int, int)}; 0 if it was never set. */
   public int documentLength(int docId) {
     docLock.readLock().lock();
     try {
@@ -189,7 +145,6 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** Number of registered documents (N in the IDF formula). */
   public int documentCount() {
     docLock.readLock().lock();
     try {
@@ -199,24 +154,19 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** Must be called while holding docLock. */
+  // call with docLock held
   private void checkDocId(int docId) {
     if (docId < 0 || docId >= docCount) {
       throw new IllegalArgumentException("Unknown docId: " + docId);
     }
   }
 
-  // ---------------------------------------------------------------- hashing
-
-  /** Mixes the high bits of hashCode into the low bits, so similar strings spread out. */
+  // spread high bits into low bits
   private static int hash(String term) {
     int h = term.hashCode();
     return h ^ (h >>> 16);
   }
 
-  // ---------------------------------------------------------------- segment
-
-  /** One node in a bucket's linked list: a term and its posting list. */
   private static final class Entry {
     final String term;
     final int hash;
@@ -230,21 +180,18 @@ public final class ConcurrentInvertedIndex {
     }
   }
 
-  /** A hash table (array of buckets with linked lists) protected by one read-write lock. */
   private static final class Segment {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    /** Low {@code segmentBits} bits of the hash chose this segment, so buckets use the bits above. */
     private final int segmentBits;
 
-    private Entry[] buckets = new Entry[INITIAL_BUCKETS]; // guarded by lock
-    private int size; // number of terms in this segment; guarded by lock
+    private Entry[] buckets = new Entry[INITIAL_BUCKETS];
+    private int size;
 
     Segment(int segmentBits) {
       this.segmentBits = segmentBits;
     }
 
-    /** Returns true if the term was new. */
     boolean add(String term, int hash, Posting posting) {
       lock.writeLock().lock();
       try {
@@ -297,7 +244,7 @@ public final class ConcurrentInvertedIndex {
       }
     }
 
-    /** Must be called while holding the lock. */
+    // call with the lock held
     private Entry find(String term, int hash) {
       for (Entry e = buckets[bucketIndex(hash, buckets.length)]; e != null; e = e.next) {
         if (e.hash == hash && e.term.equals(term)) {
@@ -307,7 +254,6 @@ public final class ConcurrentInvertedIndex {
       return null;
     }
 
-    /** Doubles the bucket array and moves every entry. Must be called under the write lock. */
     private void resize() {
       Entry[] old = buckets;
       Entry[] bigger = new Entry[old.length * 2];

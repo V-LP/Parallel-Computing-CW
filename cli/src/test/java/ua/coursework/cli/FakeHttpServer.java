@@ -9,10 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/** A tiny fake of the search server for tests, built on the JDK HttpServer. */
 final class FakeHttpServer implements AutoCloseable {
 
-  /** What the fake does for one path. */
   interface Reply {
     void handle(String method, String requestBody, Responder responder) throws Exception;
   }
@@ -22,7 +20,7 @@ final class FakeHttpServer implements AutoCloseable {
   }
 
   private final HttpServer server;
-  private final List<String> requests = new ArrayList<>(); // "METHOD path body"; guarded by itself
+  private final List<String> requests = new ArrayList<>();
 
   FakeHttpServer() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -44,7 +42,6 @@ final class FakeHttpServer implements AutoCloseable {
             reply.handle(
                 exchange.getRequestMethod(), body, (status, text) -> respond(exchange, status, text));
           } catch (IOException e) {
-            // the client went away (for example after its timeout)
           } catch (Exception e) {
             respond(exchange, 500, "{\"status\":\"error\",\"message\":\"fake failure\"}");
           }
@@ -61,7 +58,6 @@ final class FakeHttpServer implements AutoCloseable {
     return "http://127.0.0.1:" + server.getAddress().getPort();
   }
 
-  /** Body of the last request to the path, or null if there was none. */
   String lastBody(String path) {
     synchronized (requests) {
       for (int i = requests.size() - 1; i >= 0; i--) {

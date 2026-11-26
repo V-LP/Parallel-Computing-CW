@@ -14,10 +14,6 @@ import ua.coursework.engine.llm.OllamaException;
 import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.search.SearchService;
 
-/**
- * Server entry point: reads PORT, OLLAMA_URL, DATA_DIR and SEARCH_THREADS from the environment and
- * starts Javalin.
- */
 public final class Main {
 
   private static final Logger LOG = LoggerFactory.getLogger(Main.class);
@@ -60,10 +56,6 @@ public final class Main {
     startModelLoader(ollama);
   }
 
-  /**
-   * Downloads the LLM model in the background, so the server accepts requests right away, and then
-   * warms it up. Until the model is ready, query expansion simply falls back to the original query.
-   */
   private static void startModelLoader(OllamaClient ollama) {
     Thread loader =
         new Thread(
@@ -77,10 +69,6 @@ public final class Main {
     loader.start();
   }
 
-  /**
-   * One short request, so Ollama loads the model into memory now and the first real query of a
-   * user does not wait for it. A failure is only logged: the search works without the model.
-   */
   private static void warmUp(OllamaClient ollama) {
     long start = System.nanoTime();
     try {
@@ -96,7 +84,6 @@ public final class Main {
     return value == null || value.isBlank() ? defaultValue : value.trim();
   }
 
-  /** Size of the pool that runs WebSocket queries: SEARCH_THREADS, default = number of CPUs. */
   private static int readSearchThreads() {
     int cpus = Runtime.getRuntime().availableProcessors();
     String value = readEnv("SEARCH_THREADS", String.valueOf(cpus));
@@ -106,7 +93,6 @@ public final class Main {
         return threads;
       }
     } catch (NumberFormatException e) {
-      // falls through to the warning below
     }
     LOG.warn("Invalid SEARCH_THREADS '{}', using {}", value, cpus);
     return cpus;

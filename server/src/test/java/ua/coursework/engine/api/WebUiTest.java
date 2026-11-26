@@ -28,7 +28,6 @@ import ua.coursework.engine.index.Tokenizer;
 import ua.coursework.engine.llm.OllamaClient;
 import ua.coursework.engine.search.SearchService;
 
-/** The Web UI is served at "/" and does not hide the API or the WebSocket. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class WebUiTest {
 
@@ -36,7 +35,6 @@ class WebUiTest {
 
   @TempDir Path dataDir;
 
-  /** A server with the REST API and the WebSocket (port 1 is closed: Ollama is "unavailable"). */
   private Javalin newApp(ThreadPool pool) {
     Tokenizer tokenizer = new Tokenizer();
     IndexManager manager = new IndexManager(tokenizer);
@@ -61,8 +59,6 @@ class WebUiTest {
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     }
   }
-
-  // ---------------------------------------------------------------- served pages
 
   @Test
   void rootServesTheHtmlPageWithTheSearchForm() throws Exception {
@@ -129,8 +125,6 @@ class WebUiTest {
     }
   }
 
-  // ---------------------------------------------------------------- the API is not hidden
-
   @Test
   void staticFilesDoNotHideTheApi() throws Exception {
     ThreadPool pool = new ThreadPool(1);
@@ -171,7 +165,6 @@ class WebUiTest {
               assertTrue(messages.get(1).contains("\"stage\":\"keyword_search\""));
               assertTrue(messages.get(2).contains("\"stage\":\"done\""));
             }
-            // and the page itself is still there next to the WebSocket
             assertEquals(200, get(server.port(), "/").statusCode());
           });
     } finally {
@@ -198,8 +191,6 @@ class WebUiTest {
         });
   }
 
-  // ---------------------------------------------------------------- the page itself
-
   @Test
   void thePageLoadsNothingFromOtherSites() throws Exception {
     String html = resource("index.html");
@@ -207,14 +198,13 @@ class WebUiTest {
     String styles = resource("style.css");
 
     for (String raw : List.of(html, script, styles)) {
-      // the SVG namespace in the inline icon is an identifier, not an address that is loaded
+      // svg namespace is an identifier, not a request
       String text = raw.replace("http://www.w3.org/2000/svg", "");
       assertFalse(text.contains("http://"), "no absolute http address");
       assertFalse(text.contains("https://"), "no absolute https address");
       assertFalse(text.contains("//cdn"), "no CDN");
       assertFalse(text.contains("@import"), "no CSS import");
     }
-    // a Content-Security-Policy that allows only our own files
     assertTrue(html.contains("Content-Security-Policy"));
     assertTrue(html.contains("default-src 'self'"));
     assertFalse(html.contains("<script>"), "no inline script");

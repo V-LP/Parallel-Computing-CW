@@ -32,7 +32,6 @@ import ua.coursework.engine.llm.QueryExpander;
 import ua.coursework.engine.llm.TextGenerator;
 import ua.coursework.engine.search.SearchService;
 
-/** End-to-end tests of /ws/search: a real ApiServer on a free port and the JDK WebSocket client. */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class WsSearchTest {
 
@@ -61,7 +60,6 @@ class WsSearchTest {
     Files.writeString(dataDir.resolve("ocean.txt"), "ocean sailor storm wave");
   }
 
-  /** Starts the server; the language model is the given fake (Ollama itself is never used). */
   private int startServer(
       TextGenerator generator, int poolThreads, long permitWaitMillis, boolean indexBooks)
       throws IOException {
@@ -149,7 +147,7 @@ class WsSearchTest {
         startServer(
             prompt -> {
               try {
-                Thread.sleep(600); // a slow model
+                Thread.sleep(600);
               } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
               }
@@ -221,7 +219,6 @@ class WsSearchTest {
       assertEquals("{\"stage\":\"done\"}", messages.get(1));
       assertFalse(client.isClosed());
 
-      // The same connection still works.
       client.send(query("harpoon"));
       List<String> next = client.readUntilDone(WAIT_MS);
       assertEquals(3, next.size());
@@ -265,7 +262,6 @@ class WsSearchTest {
 
   @Test
   void twentyClientsAtTheSameTimeGetCompleteAndCorrectAnswers() throws Exception {
-    // 4 workers for 20 clients: the others wait in the queue. Each model call takes 20 ms.
     int port =
         startServer(
             prompt -> {
@@ -282,7 +278,7 @@ class WsSearchTest {
     String[] words = {"harpoon", "sherlock", "darcy", "storm"};
     String[] expectedDocs = {"whale.txt", "holmes.txt", "pride.txt", "ocean.txt"};
     int clients = 20;
-    List<String> problems = new ArrayList<>(); // guarded by itself
+    List<String> problems = new ArrayList<>();
     CountDownLatch go = new CountDownLatch(1);
     List<Thread> threads = new ArrayList<>();
 
@@ -335,7 +331,7 @@ class WsSearchTest {
     CountDownLatch release = new CountDownLatch(1);
     TextGenerator generator =
         prompt -> {
-          if (prompt.contains("sherlock")) { // only this query is slow
+          if (prompt.contains("sherlock")) {
             slowStarted.countDown();
             try {
               release.await(20, TimeUnit.SECONDS);
@@ -345,7 +341,6 @@ class WsSearchTest {
           }
           return "[\"ship\"]";
         };
-    // 2 workers; the fast query waits only 100 ms for the busy model and then falls back.
     int port = startServer(generator, 2, 100, true);
 
     try (WsTestClient slow = WsTestClient.connect(port);
@@ -354,7 +349,7 @@ class WsSearchTest {
       assertTrue(slowStarted.await(10, TimeUnit.SECONDS));
 
       fast.send(query("harpoon"));
-      List<String> fastMessages = fast.readUntilDone(5_000); // must not wait for the slow one
+      List<String> fastMessages = fast.readUntilDone(5_000);
       assertEquals(3, fastMessages.size());
       assertNull(slow.next(200), "the slow query has not produced anything yet");
 
@@ -389,13 +384,13 @@ class WsSearchTest {
     WsTestClient dropping = WsTestClient.connect(port);
     dropping.send(query("harpoon"));
     assertTrue(started.await(10, TimeUnit.SECONDS));
-    dropping.abort(); // the client disappears while the model is still "thinking"
+    dropping.abort(); // client leaves while the model thinks
     Thread.sleep(300);
-    release.countDown(); // now the worker continues and tries to send to a dead connection
+    release.countDown();
 
-    waitUntilPoolIsIdle(pool); // the worker finished and is free again
+    waitUntilPoolIsIdle(pool);
 
-    try (WsTestClient other = WsTestClient.connect(port)) { // the server still works
+    try (WsTestClient other = WsTestClient.connect(port)) {
       other.send(query("sherlock"));
       List<String> messages = other.readUntilDone(WAIT_MS);
       assertEquals(3, messages.size());

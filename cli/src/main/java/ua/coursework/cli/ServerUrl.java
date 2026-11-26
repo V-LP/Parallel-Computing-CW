@@ -2,18 +2,10 @@ package ua.coursework.cli;
 
 import java.net.URI;
 
-/**
- * Address of the server. Accepts http(s):// and ws(s):// addresses, or just host:port, and gives
- * the HTTP base (for REST) and the WebSocket address.
- *
- * @param http base address for REST, for example {@code http://localhost:8080} (no trailing slash)
- * @param ws address of the WebSocket, for example {@code ws://localhost:8080/ws/search}
- */
 public record ServerUrl(String http, String ws) {
 
   public static final String DEFAULT = "http://localhost:8080";
 
-  /** Reads the address; null or blank gives {@link #DEFAULT}. */
   public static ServerUrl parse(String raw) throws UsageException {
     String text = raw == null || raw.isBlank() ? DEFAULT : raw.trim();
     if (!text.contains("://")) {

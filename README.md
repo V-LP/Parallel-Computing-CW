@@ -1,6 +1,6 @@
 # Паралельна пошукова система з LLM
 
-Курсова робота з паралельних обчислень.
+Курсова робота.
 
 ## Опис
 
@@ -18,7 +18,7 @@
 - клієнти: консольний (CLI) і веб-інтерфейс (Web UI);
 - запуск однією командою `docker compose up`.
 
-> Статус: реалізовано індексацію, пошук за ключовими словами, клієнт Ollama з розширенням запиту (етап 8) WebSocket `/ws/search` (етап 9) консольний клієнт CLI (етап 10) і Web UI (етап 11). Решта етапів, див. `CONTEXT.md`.
+> Статус: реалізовано індексацію, пошук за ключовими словами, клієнт Ollama з розширенням запиту, WebSocket `/ws/search`, консольний клієнт CLI, і Web UI. 
 
 ## Вимоги
 
@@ -51,6 +51,7 @@ docker compose up --build
 | `OLLAMA_URL` | `http://ollama:11434` | адреса Ollama |
 | `OLLAMA_MODEL` | `qwen2.5:1.5b` | модель для розширення запиту |
 | `OLLAMA_TIMEOUT_SECONDS` | `60` | таймаут однієї генерації в Ollama |
+| `OLLAMA_SEED` | `42` | seed генерації Ollama (ціле число; разом з температурою 0 дає відтворюване розширення) |
 | `DATA_DIR` | `/data` | каталог з `.txt` файлами датасету (в Docker це `./data`) |
 | `CHUNK_SIZE_KB` | `100` | розмір чанка книги в КБ (символів); `0` вимикає чанки (файл = документ) |
 | `SEARCH_THREADS` | кількість CPU | розмір власного пулу потоків для WebSocket-запитів |
@@ -139,7 +140,7 @@ java tools/WsClient.java "white whale" --url ws://localhost:8080/ws/search --tim
 14:03:12.882  [+1658 ms]  {"stage":"done"}
 ```
 
-(Часи лише ілюстрація формату, не вимірювання.) Код виходу: 0 = отримано `done`, 1 = помилка
+Код виходу: 0 = отримано `done`, 1 = помилка
 з'єднання або таймаут.
 
 ## CLI
@@ -191,7 +192,7 @@ search - < query.txt        запит зі stdin (UTF-8)
 | `--rest` | вимкнено | пошук через REST замість WebSocket |
 | `--json` | вимкнено | сирий JSON замість форматованого тексту |
 
-Приклад виводу (формат ілюстративний, числа не є вимірюванням):
+Приклад виводу:
 
 ```text
 $ ./search "white whale"
@@ -275,13 +276,6 @@ Windows при передачі аргументів у Java), передайт�
 - Світла й темна тема за `prefers-color-scheme`, адаптивна верстка, `aria-live` для статусів, видимий фокус.
 - Адреса `http://localhost:8080/?q=white+whale` одразу запускає пошук.
 
-Безпека: усі дані від сервера (сніпети книг, `doc_id`, повідомлення) вставляються лише як текст (`textContent`),
-жодного `innerHTML`; додатково в `index.html` є політика CSP (скрипти й стилі тільки зі свого походження).
-Це перевіряє `WebUiTest`.
-
-Скриншоти для звіту: `docs/report/screenshots/`. Увага: поточні зроблено на тестовому корпусі з підміною Ollama,
-для звіту їх варто перезняти з реального запуску.
-
 ## Датасет
 
 Джерело: [Text files from Gutenberg database](https://zenodo.org/records/3360392)
@@ -324,7 +318,6 @@ curl localhost:8080/api/stats
 # {"documents":10384,"index_build_time_ms":123456,"threads_used":4}
 ```
 
-(Числа вище лише приклад формату, не результат вимірювання.)
 
 - Повторний виклик будує новий індекс і замінює старий атомарно; поки він будується, `/api/stats`
   показує попередній готовий індекс.
@@ -417,6 +410,8 @@ $env:OLLAMA_MODEL = "llama3.2:1b"; docker compose up --build
 блокує запуск. Прогрес видно в логу: `docker compose logs -f server`. Поки модель не готова, пошук
 працює без розширення. Перший запуск може тривати кілька хвилин (завантаження ~1 ГБ).
 
+**Відтворюваність.** Кожен запит до `/api/generate` містить `"temperature": 0` і `"seed"` (змінна `OLLAMA_SEED`, за замовчуванням `42`; не число = `42` з попередженням у лозі). Тож однаковий запит на однаковій моделі дає однакове розширення, і таблицю тестових запитів (розділ «Тестові запити») можна повторити та порівняти. Це гарантія «за інших рівних»: інша модель, версія Ollama чи обладнання можуть дати інший текст.
+
 **Прогрів.** Запит до Ollama містить `"keep_alive": "30m"` (модель лишається в пам'яті 30 хвилин), а після успішної перевірки моделі сервер робить один короткий фоновий запит `Say OK`, щоб модель завантажилась у пам'ять ще до першого пошуку користувача. Помилка прогріву лише потрапляє в лог (`Model warm-up failed`), пошук працює і без неї.
 
 **Перевірка:**
@@ -463,6 +458,64 @@ mvn -pl cli test         # лише CLI
 перевіряються проти фейкового сервера на `com.sun.net.httpserver.HttpServer`, WebSocket-режим
 проти мінімального WebSocket-сервера на сокетах (`FakeWsServer`).
 
+## Бенчмарки
+
+Заміри часу індексації (від кількості потоків і від розміру даних), пошуку (від кількості клієнтів) і
+WebSocket-пайплайну лежать у `bench/`: `run_bench.py`, `plot.py` (графіки), `summarize.py`
+(`bench/results/summary.md`). Усі числа беруться лише з реальних запусків і дописуються в CSV.
+Інструкція, вимоги до Docker Desktop і застереження (bind-mount у Windows, антивірус) у
+[`bench/README.md`](bench/README.md).
+
+```powershell
+pip install -r bench/requirements.txt
+python -m unittest discover -s bench -p "test_*.py" -v   # 86 тестів без сервера
+python bench\run_bench.py all --dry-run                   # план без запуску
+python bench\run_bench.py threads
+```
+
+## Тестові запити
+
+Таблиця з 26 запитів різних категорій (рідке й часте слово, імена, теми, синоніми, лише
+стоп-слова, безглуздий рядок, дуже довгі запити, регістр і пунктуація, цифри, кирилиця, одруківки,
+повтори) лежить у `bench/test_queries.json` (поля `id`, `category`, `query`, `purpose`).
+`bench/run_queries.py` виконує кожен запит двічі (1 = холодний, 2 = теплий прогін): `POST
+/api/search` (`mode: keyword`, без розширення) і WebSocket `/ws/search` (з розширенням). Потрібен
+Python 3.10+ і пакет `websockets` (лише для WebSocket-частини), сервер має працювати, індекс бути
+побудованим (`./search --index`), Ollama доступна.
+
+```powershell
+pip install -r bench/requirements.txt
+python bench/run_queries.py                    # результат: docs/report/test-queries.csv і .md
+python bench/run_queries.py --url http://localhost:8080 --timeout 120
+```
+
+Скрипт записує розширені терміни, кількість результатів, топ-5 (`doc_id`, `score`, початок
+сніпета), `time_ms` REST і час етапів WebSocket. Колонки «Релевантність (оцінює студент)» і
+«Коментар» у `.md` лишаються порожніми: їх заповнюють вручну. Щоб не стерти ці оцінки, наявні
+файли без `--force` не перезаписуються.
+
+**Перевірка fallback без Ollama.** Скрипт нічого не зупиняє сам. Спершу вимкніть Ollama, потім
+запустіть режим `--no-ollama`: він перевіряє, що `GET /api/health` дає `"ollama": false`, і що для
+кожного запиту розширення порожнє, а WebSocket повертає ті самі результати, що й REST. Звіт іде в
+`docs/report/test-queries-no-ollama.csv` і `.md`, код виходу 1, якщо fallback порушено.
+
+```powershell
+docker compose stop ollama
+python bench/run_queries.py --no-ollama
+docker compose start ollama
+```
+
+!! сервер кешує розширення (LRU, 256 записів) і бере їх з кешу навіть при вимкненій Ollama. Якщо
+перед цим уже виконувався звичайний запуск, перезапустіть сервер (`docker compose restart server`) і
+проіндексуйте знову (кеш і індекс живуть у пам'яті), інакше `--no-ollama` покаже непорожні
+розширення.
+
+Тести допоміжних функцій скрипта (без сервера і без `websockets`):
+
+```powershell
+python -m unittest discover -s bench -p "test_*.py" -v
+```
+
 ## Структура проєкту
 
 ```
@@ -478,10 +531,9 @@ mvn -pl cli test         # лише CLI
 ├── cli/                     # консольний клієнт (ua.coursework.cli), Dockerfile для docker compose run
 ├── search, search.cmd, search.ps1   # скрипти запуску CLI
 ├── tools/WsClient.java      # ручний WebSocket-клієнт (java tools/WsClient.java "query")
-├── bench/                   # бенчмарки та графіки (Python)
+├── bench/                   # бенчмарки (run_bench.py, plot.py), тестові запити (test_queries.json, run_queries.py)
 ├── docs/uml/                # UML-діаграми (.puml) і рендер у out/
 ├── docs/report/             # розділи звіту
-├── CONTEXT.md               # контекст проєкту для нових чатів
 └── COMMITS.md               # правила commit-повідомлень
 ```
 

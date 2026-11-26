@@ -23,8 +23,6 @@ class OllamaClientTest {
     return new OllamaClient(fake.url(), MODEL, generateTimeout, Duration.ofSeconds(10));
   }
 
-  // ---------------------------------------------------------------- isAvailable
-
   @Test
   void isAvailableReturnsFalseWithoutThrowingWhenUnreachable() {
     assertFalse(new OllamaClient("http://localhost:1").isAvailable());
@@ -41,8 +39,6 @@ class OllamaClientTest {
       assertTrue(client(fake, Duration.ofSeconds(5)).isAvailable());
     }
   }
-
-  // ---------------------------------------------------------------- generate
 
   @Test
   void generateReturnsTheResponseField() throws Exception {
@@ -64,10 +60,48 @@ class OllamaClientTest {
       assertEquals(MODEL, body.get("model").asText());
       assertEquals("my prompt", body.get("prompt").asText());
       assertTrue(body.get("stream").isBoolean() && !body.get("stream").asBoolean());
-      assertEquals(0.2, body.get("options").get("temperature").asDouble());
+      assertEquals(0.0, body.get("options").get("temperature").asDouble());
+      assertEquals(42, body.get("options").get("seed").asInt());
       assertEquals(120, body.get("options").get("num_predict").asInt());
       assertEquals("30m", body.get("keep_alive").asText());
     }
+  }
+
+  @Test
+  void generateSendsTheConfiguredSeed() throws Exception {
+    try (FakeOllama fake =
+        new FakeOllama().on("/api/generate", 200, "{\"response\":\"ok\"}").start()) {
+      new OllamaClient(fake.url(), MODEL, Duration.ofSeconds(5), Duration.ofSeconds(10), 7)
+          .generate("p");
+
+      JsonNode options = JSON.readTree(fake.lastBody("/api/generate")).get("options");
+      assertEquals(7, options.get("seed").asInt());
+      assertEquals(0.0, options.get("temperature").asDouble());
+    }
+  }
+
+  @Test
+  void seedIsTheSameForEveryRequestOfOneClient() throws Exception {
+    try (FakeOllama fake =
+        new FakeOllama().on("/api/generate", 200, "{\"response\":\"ok\"}").start()) {
+      OllamaClient client = client(fake, Duration.ofSeconds(5));
+      client.generate("one");
+      String first = fake.lastBody("/api/generate");
+      client.generate("one");
+      assertEquals(first, fake.lastBody("/api/generate"));
+    }
+  }
+
+  @Test
+  void parseSeedAcceptsIntegersAndFallsBackToDefault() {
+    assertEquals(OllamaClient.DEFAULT_SEED, 42);
+    assertEquals(123, OllamaClient.parseSeed("123"));
+    assertEquals(-5, OllamaClient.parseSeed(" -5 "));
+    assertEquals(0, OllamaClient.parseSeed("0"));
+    assertEquals(42, OllamaClient.parseSeed("abc"));
+    assertEquals(42, OllamaClient.parseSeed("1.5"));
+    assertEquals(42, OllamaClient.parseSeed("99999999999"));
+    assertEquals(42, OllamaClient.parseSeed(""));
   }
 
   @Test
@@ -131,8 +165,6 @@ class OllamaClientTest {
                 .generate("hello"));
     assertThrows(OllamaException.class, () -> new OllamaClient("not a url").generate("hello"));
   }
-
-  // ---------------------------------------------------------------- ensureModelAvailable
 
   @Test
   void ensureModelAvailableDoesNotDownloadWhenTheModelIsPresent() throws Exception {
@@ -216,8 +248,6 @@ class OllamaClientTest {
         new OllamaClient("http://localhost:1", MODEL, Duration.ofSeconds(2), Duration.ofSeconds(2));
     assertThrows(OllamaException.class, client::ensureModelAvailable);
   }
-
-  // ---------------------------------------------------------------- retries
 
   @Test
   void retriesUntilOllamaStartsAnswering() throws Exception {

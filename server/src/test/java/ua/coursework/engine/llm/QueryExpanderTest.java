@@ -19,7 +19,6 @@ class QueryExpanderTest {
 
   private static final Tokenizer TOKENIZER = new Tokenizer();
 
-  /** An expander whose "model" always answers with the given text. */
   private static QueryExpander answering(String answer) {
     return new QueryExpander(prompt -> answer, TOKENIZER, 1_000, 16);
   }
@@ -33,8 +32,6 @@ class QueryExpanderTest {
         1_000,
         16);
   }
-
-  // ---------------------------------------------------------------- parsing
 
   @Test
   void parsesAPlainJsonArray() {
@@ -68,7 +65,7 @@ class QueryExpanderTest {
 
   @Test
   void parsesBrokenJsonByFallingBackToSplitting() {
-    // the closing quote is missing, so this is not valid JSON
+    // closing quote is missing
     assertEquals(
         List.of("harpoon", "ocean"), answering("[\"harpoon\", \"ocean]").expand("white whale"));
   }
@@ -139,8 +136,6 @@ class QueryExpanderTest {
     }
     assertFalse(modifiable);
   }
-
-  // ---------------------------------------------------------------- fallback
 
   @Test
   void whenTheModelFailsTheResultIsAnEmptyListAndNothingIsThrown() {
@@ -238,8 +233,6 @@ class QueryExpanderTest {
     }
   }
 
-  // ---------------------------------------------------------------- semaphore
-
   @Test
   void neverMoreThanOneGenerationRunsAtATime() throws Exception {
     AtomicInteger running = new AtomicInteger();
@@ -328,11 +321,8 @@ class QueryExpanderTest {
     release.countDown();
     slow.join(10_000);
     assertEquals(List.of("harpoon"), first);
-    // the permit is free again
     assertEquals(List.of("harpoon"), expander.expand("pride prejudice"));
   }
-
-  // ---------------------------------------------------------------- cache
 
   @Test
   void theSameQueryIsAskedOnlyOnceAndDifferentSpellingsShareTheEntry() {
@@ -385,15 +375,15 @@ class QueryExpanderTest {
             1_000,
             2);
 
-    expander.expand("alpha"); // cache: alpha
-    expander.expand("bravo"); // cache: alpha, bravo
-    expander.expand("alpha"); // hit, alpha is now the most recent
-    expander.expand("charlie"); // cache full: bravo is dropped
+    expander.expand("alpha");
+    expander.expand("bravo");
+    expander.expand("alpha");
+    expander.expand("charlie"); // full cache drops bravo
     assertEquals(3, calls.get());
 
-    expander.expand("alpha"); // still cached
+    expander.expand("alpha");
     assertEquals(3, calls.get());
-    expander.expand("bravo"); // was dropped: asked again
+    expander.expand("bravo");
     assertEquals(4, calls.get());
   }
 

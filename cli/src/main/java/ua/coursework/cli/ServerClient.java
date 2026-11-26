@@ -13,7 +13,6 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-/** Sends the REST requests (GET and POST with a JSON body) and turns failures into messages. */
 public final class ServerClient {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -27,7 +26,6 @@ public final class ServerClient {
     this.http = http;
   }
 
-  /** A client that speaks HTTP/1.1 (the server is Jetty; no h2c upgrade surprises). */
   public static HttpClient newHttpClient() {
     return HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_1_1)
@@ -35,7 +33,6 @@ public final class ServerClient {
         .build();
   }
 
-  /** GET; returns the body of a 2xx answer. */
   public String get(String path, Duration timeout) throws CliException {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(url.http() + path))
@@ -46,7 +43,6 @@ public final class ServerClient {
     return send(request, timeout);
   }
 
-  /** POST with a JSON body (sent as UTF-8); returns the body of a 2xx answer. */
   public String post(String path, String jsonBody, Duration timeout) throws CliException {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(url.http() + path))
@@ -80,7 +76,6 @@ public final class ServerClient {
     return response.body();
   }
 
-  /** The message for a server that cannot be reached (also used by the WebSocket client). */
   static CliException unavailable(Throwable cause, ServerUrl url) {
     return new CliException(
         "Сервер недоступний: "
@@ -94,7 +89,6 @@ public final class ServerClient {
     return unavailable(cause, url);
   }
 
-  /** "Помилка сервера (HTTP 409): text"; the text is the "message" of the error JSON if any. */
   static String describeHttpError(int status, String body) {
     String text = body == null ? "" : body.trim();
     try {
@@ -104,7 +98,6 @@ public final class ServerClient {
         text = message.asText();
       }
     } catch (Exception e) {
-      // not JSON: show the body as it is
     }
     if (text.length() > MAX_ERROR_TEXT) {
       text = text.substring(0, MAX_ERROR_TEXT) + "...";

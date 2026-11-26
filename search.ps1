@@ -1,6 +1,4 @@
-﻿# Runs the console client: .\search.ps1 "white whale"   (see README, section "CLI").
-# Builds cli\target\search-cli.jar on the first run if it is missing.
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $jar = Join-Path $root 'cli\target\search-cli.jar'
 
@@ -30,12 +28,12 @@ if (-not (Test-Path $jar)) {
     }
 }
 
-# The client prints UTF-8: switch the console encoding for the run, then restore it.
+# utf-8 console for the run
 $oldOutput = [Console]::OutputEncoding
 $oldPipe = $OutputEncoding
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = $utf8
-$OutputEncoding = $utf8   # encoding of text piped to the client (query "-" from stdin)
+$OutputEncoding = $utf8
 try {
     if ($MyInvocation.ExpectingInput) {
         $input | & java -jar $jar @args

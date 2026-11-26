@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q01",
+    "category": "рідке слово",
+    "query": "harpoon",
+    "purpose": "Рідке слово: мало документів, дорогі сніпети; приклад із завдання."
+  },
+  {
+    "id": "q02",
+    "category": "рідке слово",
+    "query": "scurvy",
+    "purpose": "Друге рідке слово, інша тема (мореплавство)."
+  },
+  {
+    "id": "q03",
+    "category": "часте слово",
+    "query": "love",
+    "purpose": "Дуже часте слово: багато документів, низький IDF, багато кандидатів для ранжування."
+  },
+  {
+    "id": "q04",
+    "category": "2-3 слова",
+    "query": "white whale",
+    "purpose": "Два слова, обидва змістовні: дивимось розширення і розподіл score."
+  },
+  {
+    "id": "q05",
+    "category": "2-3 слова",
+    "query": "old man sea",
+    "purpose": "Три слова без стоп-слів; перевірка coord (частка знайдених термінів)."
+  },
+  {
+    "id": "q06",
+    "category": "ім'я",
+    "query": "sherlock holmes",
+    "purpose": "Ім'я персонажа (приклад із завдання)."
+  },
+  {
+    "id": "q07",
+    "category": "ім'я",
+    "query": "elizabeth bennet",
+    "purpose": "Ім'я героїні, що в тексті часто зустрічається окремо (Elizabeth)."
+  },
+  {
+    "id": "q08",
+    "category": "ім'я",
+    "query": "captain nemo",
+    "purpose": "Ім'я + звання; одне зі слів (captain) часте, інше рідке."
+  },
+  {
+    "id": "q09",
+    "category": "тема",
+    "query": "pirates treasure island",
+    "purpose": "Тема з трьох слів (приклад із завдання)."
+  },
+  {
+    "id": "q10",
+    "category": "тема",
+    "query": "french revolution",
+    "purpose": "Історична тема: чи підтягує розширення суміжні терміни."
+  },
+  {
+    "id": "q11",
+    "category": "синоніми (розширення)",
+    "query": "doctor",
+    "purpose": "Одне слово, у книжках може бути синонім (physician); перевірка, чи розширення його додає."
+  },
+  {
+    "id": "q12",
+    "category": "синоніми (розширення)",
+    "query": "boat",
+    "purpose": "Слово з багатьма близькими термінами (ship, vessel); порівняти REST і WS."
+  },
+  {
+    "id": "q13",
+    "category": "синоніми (розширення)",
+    "query": "sad",
+    "purpose": "Прикметник-емоція, у текстах часто замінений синонімами (sorrow, grief)."
+  },
+  {
+    "id": "q14",
+    "category": "синоніми (розширення)",
+    "query": "scary ghost",
+    "purpose": "Загальна фраза без назв: розширення може додати суміжні слова (haunted, spirit)."
+  },
+  {
+    "id": "q15",
+    "category": "лише стоп-слова",
+    "query": "the and of",
+    "purpose": "Лише стоп-слова: очікується порожній результат без виклику моделі."
+  },
+  {
+    "id": "q16",
+    "category": "безглуздий рядок",
+    "query": "xqzvbn kjhgf",
+    "purpose": "Слова, яких немає в індексі: порожній результат; як поводиться розширення."
+  },
+  {
+    "id": "q17",
+    "category": "дуже довгий",
+    "query": "I am looking for an old adventure story about a ship's captain who is obsessed with hunting a huge white whale across the cold grey ocean, together with a crew of sailors, harpooners and a young narrator who survives the voyage and tells the story many years later",
+    "purpose": "Запит довжиною понад 250 символів: природна мова, багато термінів, ліміт розширення (8)."
+  },
+  {
+    "id": "q18",
+    "category": "дуже довгий",
+    "query": "the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea the old captain watched the white whale rise from the cold grey sea",
+    "purpose": "Запит понад 1000 символів: перевищує MAX_QUERY_LENGTH WebSocket, REST ліміту не має; перевірка обробки помилки."
+  },
+  {
+    "id": "q19",
+    "category": "регістр і пунктуація",
+    "query": "SHERLOCK HOLMES!!!",
+    "purpose": "Великі літери й знаки оклику: порівняти з `sherlock holmes`."
+  },
+  {
+    "id": "q20",
+    "category": "регістр і пунктуація",
+    "query": "\"Pride, and Prejudice?\"",
+    "purpose": "Лапки, кома, питальний знак і стоп-слово всередині."
+  },
+  {
+    "id": "q21",
+    "category": "цифри",
+    "query": "1984",
+    "purpose": "Лише число: токенізатор залишає цифри як терміни."
+  },
+  {
+    "id": "q22",
+    "category": "цифри",
+    "query": "chapter 12",
+    "purpose": "Слово + число."
+  },
+  {
+    "id": "q23",
+    "category": "кирилиця",
+    "query": "біла вага",
+    "purpose": "Кириличний запит (приклад із завдання) до англомовного датасету."
+  },
+  {
+    "id": "q24",
+    "category": "кирилиця",
+    "query": "Шерлок Холмс",
+    "purpose": "Кирилиця з великими літерами; ім'я з англомовного корпусу."
+  },
+  {
+    "id": "q25",
+    "category": "одруківка",
+    "query": "sherlok holmes",
+    "purpose": "Одруківка в імені: чи знайде щось пошук і чи виправить її розширення."
+  },
+  {
+    "id": "q26",
+    "category": "повтор слів",
+    "query": "whale whale whale whale",
+    "purpose": "Одне слово чотири рази: чи впливає повтор на оцінку."
+  }
+]

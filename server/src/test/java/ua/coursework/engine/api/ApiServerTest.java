@@ -36,7 +36,6 @@ class ApiServerTest {
 
   @TempDir Path dataDir;
 
-  /** Port 1 is closed, so Ollama is "unavailable" and the tests need no network. */
   private ApiServer apiServer(IndexManager manager, Path dir) {
     Tokenizer tokenizer = new Tokenizer();
     return new ApiServer(
@@ -71,7 +70,6 @@ class ApiServerTest {
     return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
   }
 
-  /** POST with a raw body (null means no body at all). */
   private static HttpResponse<String> post(int port, String path, String body) throws Exception {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
@@ -223,8 +221,6 @@ class ApiServerTest {
           assertEquals("error", json(response).get("status").asText());
         });
   }
-
-  // ------------------------------------------------------------ /api/search
 
   private void writeWhaleBooks() throws IOException {
     Files.writeString(dataDir.resolve("moby.txt"), "Call me Ishmael. The white whale hunted with a harpoon.");

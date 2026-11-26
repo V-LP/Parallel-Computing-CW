@@ -1,0 +1,32 @@
+# One query per line; empty lines and lines starting with # are ignored.
+# A mix of: 1-3 words, frequent and rare words, personal names.
+love
+war
+king
+sea
+ship
+whale
+ghost
+gold
+horse
+marriage
+melancholy
+chrysanthemum
+daguerreotype
+phosphorescence
+Sherlock Holmes
+Elizabeth Bennet
+Captain Ahab
+Don Quixote
+Jane Eyre
+Odysseus
+Napoleon
+Constantinople
+Thames river
+white whale
+old man sea
+dark stormy night
+Alice wonderland
+Mr Darcy
+Victorian London
+Frankenstein monster
